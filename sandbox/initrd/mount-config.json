@@ -1,0 +1,6 @@
+{
+  "service_url": "https://api.anthropic.com",
+  "ready_file": "/tmp/rclone-mounts/ready",
+  "state_dir": "/tmp/rclone-mounts",
+  "mounts": []
+}
