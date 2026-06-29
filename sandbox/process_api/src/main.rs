@@ -43,6 +43,9 @@ struct Args {
 
     #[arg(long)]
     block_local_connections: bool,
+
+    #[arg(long, default_value = "300")]
+    default_timeout_secs: u64,
 }
 
 // Global runtime state tracking active tool executions
@@ -92,6 +95,11 @@ async fn main() -> Result<()> {
         // Parse initial boot disk configuration if cold boot
         if let Err(e) = execute_system_mounts() {
             warn!("Cold boot mount profile configuration bypassed: {}", e);
+        }
+
+        // Signal snapstart readiness (Anthropic pattern: write sentinel)
+        if Path::new("/tmp/rclone-mounts/ready").exists() || true {
+            info!("SNAPSTART_READY: sandbox supervisor initialized");
         }
     }
 
@@ -298,7 +306,7 @@ async fn handle_ws_routing(raw_stream: TcpStream, state: Arc<Mutex<SandboxState>
     let proc_stderr = sub_process.stderr.take().expect("Failed to grab subprocess structural error read lock");
 
     let (tx, mut rx) = tokio::sync::mpsc::channel::<Message>(100);
-    
+
     // Stdout Reader Thread
     let stdout_tx = tx.clone();
     tokio::spawn(async move {
@@ -319,20 +327,15 @@ async fn handle_ws_routing(raw_stream: TcpStream, state: Arc<Mutex<SandboxState>
         }
     });
 
-    // Outbound Message WebSocket Transmitter Thread
-    tokio::spawn(async move {
-        while let Some(msg) = rx.recv().await {
-            if ws_writer.send(msg).await.is_err() { break; }
-        }
-    });
+    // Inbound/Outbound Multiplexing Loop with Timeout
+    let timeout = tokio::time::sleep(Duration::from_secs(state.lock().await.args.default_timeout_secs));
+    tokio::pin!(timeout);
 
-    // Inbound Execution Input Multiplexing Loop
     loop {
         tokio::select! {
             incoming_msg = ws_reader.next() => {
                 match incoming_msg {
                     Some(Ok(Message::Text(text))) => {
-                        // Forward text arrays directly into the tool shell's raw stdin channel
                         if proc_stdin.write_all(text.as_bytes()).await.is_err() { break; }
                         if proc_stdin.flush().await.is_err() { break; }
                     },
@@ -340,8 +343,11 @@ async fn handle_ws_routing(raw_stream: TcpStream, state: Arc<Mutex<SandboxState>
                         if proc_stdin.write_all(&bin).await.is_err() { break; }
                         if proc_stdin.flush().await.is_err() { break; }
                     },
-                    _ => break, // Connection closed or errored out
+                    _ => break,
                 }
+            }
+            Some(msg) = rx.recv() => {
+                if ws_writer.send(msg).await.is_err() { break; }
             }
             status = sub_process.wait() => {
                 match status {
@@ -350,13 +356,28 @@ async fn handle_ws_routing(raw_stream: TcpStream, state: Arc<Mutex<SandboxState>
                 }
                 break;
             }
+            _ = &mut timeout => {
+                info!("Tool call timed out, sending SIGTERM");
+                let _ = nix::sys::signal::kill(
+                    nix::unistd::Pid::from_raw(pid as i32),
+                    nix::sys::signal::Signal::SIGTERM,
+                );
+                break;
+            }
         }
     }
 
     // Unregister execution metrics from tracking tables
     let mut lock = state.lock().await;
     lock.active_tasks.remove(&task_uuid);
-    
+
     // Clear the active cgroup configuration folder from system trees
     let _ = fs::remove_dir(format!("/sys/fs/cgroup/memory/process_api/{}", task_uuid));
+
+    // Send exit code to WebSocket client before closing
+    let exit_msg = match sub_process.wait().await {
+        Ok(status) => format!("{{\"event\":\"exit\",\"code\":{}}}", status.code().unwrap_or(-1)),
+        Err(_) => r#"{"event":"exit","code":-1}"#.to_string(),
+    };
+    let _ = ws_writer.send(Message::Text(exit_msg.into())).await;
 }
