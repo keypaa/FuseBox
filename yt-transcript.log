@@ -1,0 +1,8 @@
+2026-06-29 21:01:48,026 - __main__ - INFO - Starting YouTube Transcript MCP server
+2026-06-29 21:01:49,531 - mcp.server.lowlevel.server - INFO - Processing request of type ListToolsRequest
+2026-06-29 21:01:50,657 - mcp.server.lowlevel.server - INFO - Processing request of type ListResourcesRequest
+2026-06-29 21:01:51,953 - mcp.server.lowlevel.server - INFO - Processing request of type ListPromptsRequest
+2026-06-29 21:17:19,879 - __main__ - INFO - Starting YouTube Transcript MCP server
+2026-06-29 21:17:21,725 - mcp.server.lowlevel.server - INFO - Processing request of type ListToolsRequest
+2026-06-29 21:17:22,408 - mcp.server.lowlevel.server - INFO - Processing request of type ListResourcesRequest
+2026-06-29 21:17:23,095 - mcp.server.lowlevel.server - INFO - Processing request of type ListPromptsRequest

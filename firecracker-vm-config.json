@@ -1,0 +1,164 @@
+{
+  "_comment": "Firecracker VM config reconstructed from live sandbox inspection.",
+  "_comment2": "Confirmed values: kernel cmdline, MAC, MTU, memory, vCPU, disk sizes, virtio devices.",
+  "_comment3": "Replace file paths with your actual paths.",
+
+  "boot-source": {
+    "kernel_image_path": "/path/to/vmlinux",
+    "_comment": "Custom kernel 6.18.5, compiled Wed Jan 14 17:56:08 UTC 2026.",
+    "_comment2": "Key config: CONFIG_HZ=250, PREEMPT_DYNAMIC, SQUASHFS+zstd, FUSE+io_uring, no modules.",
+    "boot_args": "console=ttyS0 reboot=k panic=1 nomodule random.trust_cpu=1 ipv6.disable=1 swiotlb=noforce rdinit=/process_api init_on_free=1 -- --firecracker-init --addr 0.0.0.0:2024 --max-ws-buffer-size 32768 --block-local-connections",
+    "_comment3": "process_api is embedded in the initrd (device 00:02, inode 5), not on rootfs.",
+    "initrd_path": "/path/to/initrd.img"
+  },
+
+  "machine-config": {
+    "vcpu_count": 1,
+    "mem_size_mib": 3998,
+    "_comment": "MemTotal=4093928KB -> ~3998MiB usable after kernel/firmware overhead.",
+    "smt": false,
+    "track_dirty_pages": true,
+    "_comment2": "track_dirty_pages=true is required for snapshot/snapstart support.",
+    "huge_pages": "None"
+  },
+
+  "drives": [
+    {
+      "drive_id": "rootfs",
+      "path_on_host": "/path/to/rootfs.ext4",
+      "_comment": "256GB sparse ext4. UUID zeroed. Reserved blocks=91% (233GB), usable ~18GB.",
+      "_comment2": "mkfs: mkfs.ext4 -L '' -U 00000000-0000-0000-0000-000000000000 -E lazy_itable_init=0,lazy_journal_init=0 -O ^has_journal /path/to/rootfs.ext4 268435456",
+      "_comment3": "No journal (O ^has_journal) for faster boot. Last mounted at /mnt during build.",
+      "is_root_device": true,
+      "is_read_only": false,
+      "size_mib": 262144,
+      "io_engine": "Sync",
+      "rate_limiter": null
+    },
+    {
+      "drive_id": "rclone",
+      "path_on_host": "/path/to/rclone-filestore.squashfs",
+      "_comment": "squashfs, zstd compression, 128KB block size, 2 inodes, ~9.9MB.",
+      "_comment2": "Contains only the rclone-filestore binary. Mount point: /opt/rclone/",
+      "_comment3": "mksquashfs /opt/rclone rclone.squashfs -comp zstd -b 131072 -noappend",
+      "is_root_device": false,
+      "is_read_only": true,
+      "size_mib": 10,
+      "io_engine": "Sync",
+      "rate_limiter": null
+    },
+    {
+      "drive_id": "skills-public",
+      "path_on_host": "/path/to/skills-public.squashfs",
+      "_comment": "squashfs, zstd, 128KB blocks, 243 inodes, 7 fragments, ~663KB.",
+      "_comment2": "Contains public skill files. Mount point: /mnt/skills/public/",
+      "_comment3": "Created: 2026-05-06 21:01:50. Updated independently from rootfs.",
+      "is_root_device": false,
+      "is_read_only": true,
+      "size_mib": 1,
+      "io_engine": "Sync",
+      "rate_limiter": null
+    },
+    {
+      "drive_id": "skills-examples",
+      "path_on_host": "/path/to/skills-examples.squashfs",
+      "_comment": "squashfs, zstd, 128KB blocks, 231 inodes, 38 fragments, ~5.5MB.",
+      "_comment2": "Contains example/operator skill files. Mount point: /mnt/skills/examples/",
+      "_comment3": "Created: 2026-05-06 21:01:50. Same timestamp as skills-public (built together).",
+      "is_root_device": false,
+      "is_read_only": true,
+      "size_mib": 6,
+      "io_engine": "Sync",
+      "rate_limiter": null
+    }
+  ],
+
+  "network-interfaces": [
+    {
+      "iface_id": "eth0",
+      "guest_mac": "02:fc:00:00:00:01",
+      "_comment": "02:fc prefix = locally administered unicast. Anthropic convention.",
+      "host_dev_name": "fc-tap0",
+      "_comment2": "Host TAP device. Gateway MAC will be 02:fc:00:00:00:05 (observed in ARP table).",
+      "_comment3": "MTU must be set to 1400 on both TAP and guest eth0 to account for VXLAN overlay on AWS VPC.",
+      "rx_rate_limiter": null,
+      "tx_rate_limiter": null
+    }
+  ],
+
+  "vsock": {
+    "_comment": "vsock device present (/dev/vsock exists, PF_VSOCK registered).",
+    "_comment2": "Not actively used in standard chat sessions but process_api supports --listen-vsock-port.",
+    "_comment3": "Uncomment if you need vsock transport instead of TCP.",
+    "guest_cid": 3,
+    "uds_path": "/tmp/firecracker-vsock.sock"
+  },
+
+  "entropy": {
+    "_comment": "virtio-rng device (PCI 1AF4:1044, virtio5). Feeds /dev/hwrng.",
+    "_comment2": "Combined with random.trust_cpu=1 (RDRAND), entropy is instant at boot.",
+    "_comment3": "Firecracker exposes this automatically - no extra config needed."
+  },
+
+  "logger": {
+    "log_path": "/tmp/firecracker.log",
+    "level": "Warning",
+    "show_level": true,
+    "show_log_origin": false
+  },
+
+  "metrics": {
+    "metrics_path": "/tmp/firecracker-metrics.json"
+  },
+
+  "mmds-config": {
+    "_comment": "MMDS (Metadata Service) deliberately NOT configured.",
+    "_comment2": "The egress proxy blocks 169.254.169.254 with x-deny-reason: private_dest_ip.",
+    "_comment3": "Keeping MMDS disabled prevents any metadata leakage from inside the VM."
+  },
+
+  "snapshot": {
+    "_comment": "Snapstart is the key performance feature. Two-phase boot:",
+    "_comment2": "Phase 1 (template): Boot VM fresh, let process_api signal SNAPSTART_READY, take snapshot.",
+    "_comment3": "Phase 2 (resume): Restore snapshot, POST /mount_root with session-specific rclone config.",
+    "_comment4": "The VM gen counter (ACPI FCVMGID) increments on resume, triggering crng reseed.",
+    "_comment5": "Observed boot time from snapshot: ~8.3s kernel-to-ready.",
+    "snapshot_type": "Full",
+    "snapshot_path": "/path/to/vm.snapshot",
+    "mem_file_path": "/path/to/vm.memory"
+  },
+
+  "_host_setup_notes": {
+    "tap_setup": [
+      "ip tuntap add fc-tap0 mode tap",
+      "ip addr add 192.0.2.1/24 dev fc-tap0",
+      "ip link set fc-tap0 mtu 1400 up",
+      "ip link set fc-tap0 address 02:fc:00:00:00:05",
+      "echo 1 > /proc/sys/net/ipv4/ip_forward",
+      "iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE",
+      "iptables -A FORWARD -i fc-tap0 -o eth0 -j ACCEPT"
+    ],
+    "guest_network_setup": [
+      "ip addr add 192.0.2.2/24 dev eth0",
+      "ip link set eth0 mtu 1400 up",
+      "ip route add default via 192.0.2.1",
+      "echo 'nameserver 8.8.8.8' > /etc/resolv.conf",
+      "echo '160.79.104.10 api.anthropic.com' >> /etc/hosts"
+    ],
+    "squashfs_mounts": [
+      "mount -o ro /dev/vdb /opt/rclone",
+      "mount -o ro /dev/vdc /mnt/skills/public",
+      "mount -o ro /dev/vdd /mnt/skills/examples"
+    ],
+    "reserved_blocks": [
+      "tune2fs -r 61190791 /dev/vda",
+      "_comment": "Sets 91% reserved to enforce ~18GB usable quota. Requires CAP_SYS_RESOURCE (drop it after)."
+    ],
+    "cgroup_setup": [
+      "mkdir -p /sys/fs/cgroup/memory/process_api",
+      "echo $PID > /sys/fs/cgroup/memory/process_api/cgroup.procs",
+      "_comment": "process_api creates per-tool-call UUID sub-cgroups automatically.",
+      "_comment2": "No hard memory limit set at cgroup level - Firecracker guest RAM is the real limit."
+    ]
+  }
+}

@@ -1,0 +1,287 @@
+# Envoy Egress Proxy Configuration
+# Reconstructed from live sandbox inspection of Anthropic's Claude sandbox infrastructure.
+#
+# Key findings that shaped this config:
+#   - TLS MITM confirmed: issuer = "Anthropic / Egress Gateway SDS Issuing CA (production)"
+#   - SDS in issuer name -> Envoy Secret Discovery Service for dynamic cert generation
+#   - Per-domain leaf certs, 30-day validity, auto-rotated
+#   - Gateway IP: 192.0.2.1 (TEST-NET-1), VM IP: 192.0.2.2
+#   - Allowlist-based: blocked domains return "Host not in allowlist: {domain}"
+#   - Private IPs blocked with x-deny-reason: private_dest_ip (including 169.254.169.254)
+#   - No open ports from inside VM (pure transparent proxy)
+#   - Cloudflare CDN confirmed on api.anthropic.com (cf-ray: ORD = Chicago PoP)
+
+static_resources:
+
+  listeners:
+    # ─── Transparent HTTP proxy ───────────────────────────────────────────────
+    - name: http_listener
+      address:
+        socket_address:
+          address: 192.0.2.1
+          port_value: 80
+      filter_chains:
+        - filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: ingress_http
+                access_log:
+                  - name: envoy.access_loggers.stdout
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+                http_filters:
+                  - name: envoy.filters.http.lua
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.LuaPerRoute
+                      # Block private/loopback destinations
+                      inline_code: |
+                        function envoy_on_request(request_handle)
+                          local host = request_handle:headers():get(":authority")
+                          -- Strip port if present
+                          host = host:match("^([^:]+)") or host
+                          -- Block private IP ranges
+                          if host:match("^169%.254%.") or
+                             host:match("^10%.") or
+                             host:match("^172%.1[6-9]%.") or
+                             host:match("^172%.2%d%.") or
+                             host:match("^172%.3[01]%.") or
+                             host:match("^192%.168%.") or
+                             host:match("^127%.") or
+                             host:match("^192%.0%.2%.") then
+                            request_handle:respond(
+                              {[":status"] = "403",
+                               ["x-deny-reason"] = "private_dest_ip"},
+                              "Access to private IP ranges is not allowed."
+                            )
+                          end
+                        end
+                  - name: envoy.filters.http.router
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+                route_config:
+                  virtual_hosts:
+                    - name: allowlist_check
+                      domains: ["*"]
+                      routes:
+                        - match: { prefix: "/" }
+                          route:
+                            cluster: dynamic_forward_proxy
+                            timeout: 30s
+
+    # ─── Transparent HTTPS proxy (TLS MITM) ──────────────────────────────────
+    - name: https_listener
+      address:
+        socket_address:
+          address: 192.0.2.1
+          port_value: 443
+      filter_chains:
+        - filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: ingress_https
+                access_log:
+                  - name: envoy.access_loggers.stdout
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+                http_filters:
+                  - name: envoy.filters.http.lua
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.LuaPerRoute
+                      inline_code: |
+                        -- Allowlist of permitted domains (confirmed from live sandbox)
+                        local ALLOWLIST = {
+                          -- Anthropic APIs
+                          ["api.anthropic.com"] = true,
+                          -- Python packages
+                          ["pypi.org"] = true,
+                          ["files.pythonhosted.org"] = true,
+                          ["pythonhosted.org"] = true,
+                          -- Node/npm
+                          ["registry.npmjs.org"] = true,
+                          ["npmjs.org"] = true,
+                          ["npmjs.com"] = true,
+                          ["www.npmjs.org"] = true,
+                          ["www.npmjs.com"] = true,
+                          ["yarnpkg.com"] = true,
+                          ["registry.yarnpkg.com"] = true,
+                          -- GitHub
+                          ["github.com"] = true,
+                          ["api.github.com"] = true,
+                          ["raw.githubusercontent.com"] = true,
+                          ["codeload.github.com"] = true,
+                          -- Ubuntu/Debian packages
+                          ["archive.ubuntu.com"] = true,
+                          ["security.ubuntu.com"] = true,
+                          -- Rust/Cargo
+                          ["crates.io"] = true,
+                          ["index.crates.io"] = true,
+                          ["static.crates.io"] = true,
+                        }
+
+                        function envoy_on_request(request_handle)
+                          local host = request_handle:headers():get(":authority")
+                          host = host:match("^([^:]+)") or host
+
+                          -- Block private IP ranges
+                          if host:match("^169%.254%.") or
+                             host:match("^10%.") or
+                             host:match("^192%.168%.") or
+                             host:match("^127%.") or
+                             host:match("^192%.0%.2%.") then
+                            request_handle:respond(
+                              {[":status"] = "403",
+                               ["x-deny-reason"] = "private_dest_ip"},
+                              "Access to private IP ranges is not allowed."
+                            )
+                            return
+                          end
+
+                          -- Check allowlist
+                          if not ALLOWLIST[host] then
+                            request_handle:respond(
+                              {[":status"] = "403",
+                               ["x-deny-reason"] = "host_not_allowlisted",
+                               ["content-type"] = "text/plain"},
+                              "Host not in allowlist: " .. host .. ". Add this host to your network egress settings to allow access."
+                            )
+                          end
+                        end
+                  - name: envoy.filters.http.router
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+                route_config:
+                  virtual_hosts:
+                    - name: allowlist_check
+                      domains: ["*"]
+                      routes:
+                        - match: { prefix: "/" }
+                          route:
+                            cluster: dynamic_forward_proxy_tls
+                            timeout: 60s
+          # ── Downstream TLS (MITM: proxy presents forged cert to VM) ─────────
+          transport_socket:
+            name: envoy.transport_sockets.tls
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+              common_tls_context:
+                # SDS fetches dynamically generated per-domain certs
+                # This is what "Egress Gateway SDS Issuing CA" in the cert issuer refers to
+                tls_certificate_sds_secret_configs:
+                  - name: server_cert
+                    sds_config:
+                      resource_api_version: V3
+                      api_config_source:
+                        api_type: GRPC
+                        transport_api_version: V3
+                        grpc_services:
+                          - envoy_grpc:
+                              cluster_name: sds_server
+                # Trusted CA bundle injected into VM guest
+                # Corresponds to: /etc/ssl/certs/egress-gateway-ca-production.pem
+                validation_context:
+                  trusted_ca:
+                    filename: /etc/envoy/ca-bundle.pem
+
+  clusters:
+    # ─── Dynamic forward proxy (HTTP) ────────────────────────────────────────
+    - name: dynamic_forward_proxy
+      type: LOGICAL_DNS
+      lb_policy: ROUND_ROBIN
+      load_assignment:
+        cluster_name: dynamic_forward_proxy
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address:
+                      address: upstream_host
+                      port_value: 80
+
+    # ─── Dynamic forward proxy (HTTPS/TLS upstream) ───────────────────────────
+    - name: dynamic_forward_proxy_tls
+      type: STRICT_DNS
+      lb_policy: ROUND_ROBIN
+      dns_lookup_family: V4_ONLY
+      typed_extension_protocol_options:
+        envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+          "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+          upstream_http_protocol_options:
+            auto_sni: true
+            auto_san_validation: true
+      cluster_type:
+        name: envoy.clusters.dynamic_forward_proxy
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.clusters.dynamic_forward_proxy.v3.ClusterConfig
+          dns_cache_config:
+            name: shared_dns_cache
+            dns_lookup_family: V4_ONLY
+            dns_refresh_rate: 60s
+            host_ttl: 300s
+      # ── Upstream TLS (proxy re-establishes real TLS to destination) ─────────
+      transport_socket:
+        name: envoy.transport_sockets.tls
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+          common_tls_context:
+            validation_context:
+              trusted_ca:
+                # Real public CA bundle for verifying upstream servers
+                filename: /etc/ssl/certs/ca-certificates.crt
+          # SNI set dynamically from Host header
+          sni: upstream_host
+
+    # ─── SDS server (Secret Discovery Service for dynamic cert generation) ────
+    - name: sds_server
+      connect_timeout: 1s
+      type: STATIC
+      lb_policy: ROUND_ROBIN
+      load_assignment:
+        cluster_name: sds_server
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    pipe:
+                      # Local cert generation service (your CA signing daemon)
+                      # Generates per-domain leaf certs signed by egress-gateway-ca-production
+                      path: /var/run/envoy-sds.sock
+      typed_extension_protocol_options:
+        envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+          "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+          explicit_http_config:
+            http2_protocol_options: {}
+
+# ─── Admin interface (internal only) ─────────────────────────────────────────
+admin:
+  address:
+    socket_address:
+      address: 127.0.0.1
+      port_value: 9901
+
+# ─── Notes on CA setup ───────────────────────────────────────────────────────
+# To reproduce the MITM CA:
+#
+# 1. Generate root CA (this is your "Egress Gateway SDS Issuing CA (production)"):
+#    openssl genrsa -out egress-ca.key 4096
+#    openssl req -new -x509 -days 3650 -key egress-ca.key \
+#      -subj "/O=Anthropic/CN=Egress Gateway SDS Issuing CA (production)" \
+#      -out egress-gateway-ca-production.pem
+#
+# 2. Inject the CA cert into the VM guest (so it trusts your proxy):
+#    cp egress-gateway-ca-production.pem /etc/ssl/certs/
+#    update-ca-certificates
+#    # Also needs to be at the exact path the VM expects:
+#    # /etc/ssl/certs/egress-gateway-ca-production.pem
+#
+# 3. The SDS server dynamically generates per-domain leaf certs on demand:
+#    - Valid for 30 days (observed: Jun 24 -> Jul 24 2026)
+#    - CN = domain or wildcard (e.g. *.anthropic.com, pypi.org)
+#    - SAN = exact domain
+#    - Signed by the root CA above
+#
+# 4. Guest env vars that enforce CA trust across all HTTP stacks:
+#    NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+#    REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+#    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
