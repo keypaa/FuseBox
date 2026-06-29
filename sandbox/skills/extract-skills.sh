@@ -18,11 +18,16 @@ with open(combined_path, "r") as f:
 
 skills = re.split(r'\n### `(\w[\w-]*)`\n', content)
 
+excluded_skills = {"feature-ideation"}
 public_skills = {"docx", "pdf", "pdf-reading", "pptx", "xlsx", "file-reading", "frontend-design", "product-self-knowledge"}
 
 for i in range(1, len(skills), 2):
     name = skills[i]
     body = skills[i+1].strip()
+
+    if name in excluded_skills:
+        print(f"Skipping: {name} (handled separately)")
+        continue
 
     if name in public_skills:
         outdir = f"{script_dir}/public/{name}"

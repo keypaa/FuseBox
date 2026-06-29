@@ -2,3 +2,6 @@ sandbox/process_api/target/
 sandbox/kernel/build/
 sandbox/rootfs/rootfs.ext4
 sandbox/rootfs/build/
+
+# Windows NTFS alternate data stream artifacts
+*:Zone.Identifier
