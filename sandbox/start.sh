@@ -8,6 +8,26 @@ echo "=========================================="
 echo "  FuseBox Sandbox - One-Command Start"
 echo "=========================================="
 
+# 0. Check and install prerequisites
+echo "[0/5] Checking prerequisites..."
+MISSING=""
+for cmd in cargo go mksquashfs openssl; do
+  command -v "$cmd" >/dev/null 2>&1 || MISSING="$MISSING $cmd"
+done
+[ -n "$MISSING" ] && echo "ERROR: missing commands:$MISSING" && exit 1
+
+# Install musl cross-compiler if missing
+if ! command -v x86_64-linux-musl-gcc >/dev/null 2>&1; then
+  echo "  Installing musl-tools (needed for static linking)..."
+  sudo apt-get update -qq && sudo apt-get install -y -qq musl-tools
+fi
+
+# Ensure musl Rust target is installed
+if ! rustup target list --installed 2>/dev/null | grep -q x86_64-unknown-linux-musl; then
+  echo "  Installing rustup target x86_64-unknown-linux-musl..."
+  rustup target add x86_64-unknown-linux-musl
+fi
+
 # 1. Build everything
 echo "[1/5] Building all components..."
 make all
