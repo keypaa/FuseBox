@@ -14,7 +14,7 @@ sudo chroot "${ROOTFS}" useradd -m -u 1000 -s /bin/bash ubuntu 2>/dev/null || tr
 
 # Ensure /home/claude exists with correct ownership
 sudo mkdir -p "${ROOTFS}/home/claude"
-sudo chroot "${ROOTFS}" chown -R claude /home/claude
+sudo chroot "${ROOTFS}" chown -R claude:ubuntu /home/claude
 
 # Create required directories
 sudo mkdir -p "${ROOTFS}/tmp/rclone-mounts"
@@ -27,6 +27,15 @@ sudo mkdir -p "${ROOTFS}/mnt/skills/examples"
 sudo mkdir -p "${ROOTFS}/mnt/skills/user"
 sudo mkdir -p "${ROOTFS}/opt/rclone"
 sudo mkdir -p "${ROOTFS}/opt/google/chrome"
+
+# Chown writable runtime directories to claude:ubuntu.
+# Note: We do NOT chown the entire rootfs (original spec had
+# sudo chown -R claude:ubuntu "${ROOTFS}/") — that would break
+# setuid binaries and system files. Only the directories that
+# process_api/claude need to write to are chowned here.
+sudo chroot "${ROOTFS}" chown -R claude:ubuntu /mnt/user-data
+sudo chroot "${ROOTFS}" chown -R claude:ubuntu /mnt/transcripts
+sudo chroot "${ROOTFS}" chown claude:ubuntu /tmp/rclone-mounts
 
 # /etc/hosts with api.anthropic.com
 cat << 'EOF' | sudo tee "${ROOTFS}/etc/hosts"
