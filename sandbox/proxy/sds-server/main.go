@@ -50,9 +50,17 @@ func loadCA(certPath, keyPath string) error {
 	if keyBlock == nil {
 		return fmt.Errorf("decode key PEM failed")
 	}
-	caKey, err = x509.ParsePKCS1PrivateKey(keyBlock.Bytes)
+	keyAny, err := x509.ParsePKCS8PrivateKey(keyBlock.Bytes)
 	if err != nil {
-		return err
+		keyAny, err = x509.ParsePKCS1PrivateKey(keyBlock.Bytes)
+		if err != nil {
+			return fmt.Errorf("parse private key: %w", err)
+		}
+	}
+	var ok bool
+	caKey, ok = keyAny.(*rsa.PrivateKey)
+	if !ok {
+		return fmt.Errorf("CA key is not RSA")
 	}
 
 	return nil

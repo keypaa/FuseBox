@@ -39,6 +39,16 @@ if ! rustup target list --installed 2>/dev/null | grep -q x86_64-unknown-linux-m
   rustup target add x86_64-unknown-linux-musl
 fi
 
+# Install envoy if missing (from official APT repo)
+if ! command -v envoy >/dev/null 2>&1; then
+  echo "  Installing Envoy proxy..."
+  sudo apt-get update -qq
+  sudo apt-get install -y -qq apt-transport-https gnupg
+  curl -sL 'https://deb.dl.getenvoy.io/public/gpg.asc' | sudo gpg --dearmor -o /usr/share/keyrings/getenvoy-keyring.gpg
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/getenvoy-keyring.gpg] https://deb.dl.getenvoy.io/public/deb/ubuntu $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/envoy.list
+  sudo apt-get update -qq && sudo apt-get install -y -qq envoy
+fi
+
 # 1. Build everything
 echo "[1/5] Building all components..."
 make all
