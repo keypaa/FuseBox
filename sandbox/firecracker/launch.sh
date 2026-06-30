@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SANDBOX_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 FC_SOCKET="/tmp/fusebox-fc.sock"
 FC_BINARY="${SCRIPT_DIR}/firecracker"
 
@@ -32,11 +33,11 @@ echo "==> Configuring VM via API..."
 # Set boot source
 sudo curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/boot-source' \
   -H 'Content-Type: application/json' \
-  -d @- << 'EOF'
+  -d @- << EOF
 {
-  "kernel_image_path": "../kernel/vmlinux",
+  "kernel_image_path": "${SANDBOX_DIR}/kernel/vmlinux",
   "boot_args": "console=ttyS0 reboot=k panic=1 nomodule random.trust_cpu=1 ipv6.disable=1 swiotlb=noforce rdinit=/process_api init_on_free=1 -- --firecracker-init --addr 0.0.0.0:2024 --max-ws-buffer-size 32768 --block-local-connections",
-  "initrd_path": "../initrd/initrd.img"
+  "initrd_path": "${SANDBOX_DIR}/initrd/initrd.img"
 }
 EOF
 
@@ -48,19 +49,19 @@ sudo curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/machine-config' 
 # Attach drives
 sudo curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/drives/rootfs' \
   -H 'Content-Type: application/json' \
-  -d '{"drive_id":"rootfs","path_on_host":"../rootfs/rootfs.ext4","is_root_device":true,"is_read_only":false}'
+  -d "{\"drive_id\":\"rootfs\",\"path_on_host\":\"${SANDBOX_DIR}/rootfs/rootfs.ext4\",\"is_root_device\":true,\"is_read_only\":false}"
 
 sudo curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/drives/rclone' \
   -H 'Content-Type: application/json' \
-  -d '{"drive_id":"rclone","path_on_host":"../rclone/rclone-filestore.squashfs","is_root_device":false,"is_read_only":true}'
+  -d "{\"drive_id\":\"rclone\",\"path_on_host\":\"${SANDBOX_DIR}/rclone/rclone-filestore.squashfs\",\"is_root_device\":false,\"is_read_only\":true}"
 
-sudo curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/drives/skills-public' \
+sudo curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/drives/skills_public' \
   -H 'Content-Type: application/json' \
-  -d '{"drive_id":"skills-public","path_on_host":"../skills/skills-public.squashfs","is_root_device":false,"is_read_only":true}'
+  -d "{\"drive_id\":\"skills_public\",\"path_on_host\":\"${SANDBOX_DIR}/skills/skills-public.squashfs\",\"is_root_device\":false,\"is_read_only\":true}"
 
-sudo curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/drives/skills-examples' \
+sudo curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/drives/skills_examples' \
   -H 'Content-Type: application/json' \
-  -d '{"drive_id":"skills-examples","path_on_host":"../skills/skills-examples.squashfs","is_root_device":false,"is_read_only":true}'
+  -d "{\"drive_id\":\"skills_examples\",\"path_on_host\":\"${SANDBOX_DIR}/skills/skills-examples.squashfs\",\"is_root_device\":false,\"is_read_only\":true}"
 
 # Attach network
 sudo curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/network-interfaces/eth0' \
