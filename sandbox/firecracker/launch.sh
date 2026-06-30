@@ -30,7 +30,7 @@ done
 
 echo "==> Configuring VM via API..."
 # Set boot source
-curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/boot-source' \
+sudo curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/boot-source' \
   -H 'Content-Type: application/json' \
   -d @- << 'EOF'
 {
@@ -41,34 +41,34 @@ curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/boot-source' \
 EOF
 
 # Set machine config
-curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/machine-config' \
+sudo curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/machine-config' \
   -H 'Content-Type: application/json' \
   -d '{"vcpu_count":1,"mem_size_mib":3998,"smt":false,"track_dirty_pages":true}'
 
 # Attach drives
-curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/drives/rootfs' \
+sudo curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/drives/rootfs' \
   -H 'Content-Type: application/json' \
   -d '{"drive_id":"rootfs","path_on_host":"../rootfs/rootfs.ext4","is_root_device":true,"is_read_only":false}'
 
-curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/drives/rclone' \
+sudo curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/drives/rclone' \
   -H 'Content-Type: application/json' \
   -d '{"drive_id":"rclone","path_on_host":"../rclone/rclone-filestore.squashfs","is_root_device":false,"is_read_only":true}'
 
-curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/drives/skills-public' \
+sudo curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/drives/skills-public' \
   -H 'Content-Type: application/json' \
   -d '{"drive_id":"skills-public","path_on_host":"../skills/skills-public.squashfs","is_root_device":false,"is_read_only":true}'
 
-curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/drives/skills-examples' \
+sudo curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/drives/skills-examples' \
   -H 'Content-Type: application/json' \
   -d '{"drive_id":"skills-examples","path_on_host":"../skills/skills-examples.squashfs","is_root_device":false,"is_read_only":true}'
 
 # Attach network
-curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/network-interfaces/eth0' \
+sudo curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/network-interfaces/eth0' \
   -H 'Content-Type: application/json' \
   -d '{"iface_id":"eth0","guest_mac":"02:fc:00:00:00:01","host_dev_name":"fc-tap0"}'
 
 echo "==> Starting VM..."
-curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/actions' \
+sudo curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/actions' \
   -H 'Content-Type: application/json' \
   -d '{"action_type":"InstanceStart"}'
 
