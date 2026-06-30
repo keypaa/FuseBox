@@ -10,6 +10,7 @@ echo "=========================================="
 
 # 0. Check and install prerequisites
 echo "[0/5] Checking prerequisites..."
+MISSING=""
 APT_PKGS=""
 command -v cargo >/dev/null 2>&1 || MISSING="cargo"
 command -v go >/dev/null 2>&1 || MISSING="$MISSING go"
