@@ -10,16 +10,22 @@ echo "=========================================="
 
 # 0. Check and install prerequisites
 echo "[0/5] Checking prerequisites..."
-MISSING=""
-for cmd in cargo go mksquashfs openssl; do
-  command -v "$cmd" >/dev/null 2>&1 || MISSING="$MISSING $cmd"
-done
-[ -n "$MISSING" ] && echo "ERROR: missing commands:$MISSING" && exit 1
-
-# Install musl cross-compiler if missing
-if ! command -v x86_64-linux-musl-gcc >/dev/null 2>&1; then
-  echo "  Installing musl-tools (needed for static linking)..."
-  sudo apt-get update -qq && sudo apt-get install -y -qq musl-tools
+APT_PKGS=""
+command -v cargo >/dev/null 2>&1 || MISSING="cargo"
+command -v go >/dev/null 2>&1 || MISSING="$MISSING go"
+command -v mksquashfs >/dev/null 2>&1 || APT_PKGS="$APT_PKGS squashfs-tools"
+command -v openssl >/dev/null 2>&1 || APT_PKGS="$APT_PKGS openssl"
+command -v flex >/dev/null 2>&1 || APT_PKGS="$APT_PKGS flex"
+command -v bison >/dev/null 2>&1 || APT_PKGS="$APT_PKGS bison"
+command -v x86_64-linux-musl-gcc >/dev/null 2>&1 || APT_PKGS="$APT_PKGS musl-tools"
+if [ -n "${MISSING:-}" ]; then
+  echo "ERROR: missing commands that can't be auto-installed:$MISSING"
+  echo "  Install them manually (e.g., rustup, go) and re-run."
+  exit 1
+fi
+if [ -n "$APT_PKGS" ]; then
+  echo "  Installing missing system packages:$APT_PKGS..."
+  sudo apt-get update -qq && sudo apt-get install -y -qq $APT_PKGS
 fi
 
 # Ensure musl Rust target is installed
