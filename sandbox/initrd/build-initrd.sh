@@ -27,10 +27,10 @@ cp "${SCRIPT_DIR}"/*.pem "${INITRD_DIR}/etc/ssl/certs/"
 cat "${SCRIPT_DIR}"/*.pem > "${INITRD_DIR}/etc/ssl/certs/ca-certificates.crt"
 
 echo "==> Creating essential device nodes..."
-mknod "${INITRD_DIR}/dev/console" c 5 1
-mknod "${INITRD_DIR}/dev/null" c 1 3
-mknod "${INITRD_DIR}/dev/ttyS0" c 4 64
-mknod "${INITRD_DIR}/dev/fuse" c 10 229
+sudo mknod "${INITRD_DIR}/dev/console" c 5 1
+sudo mknod "${INITRD_DIR}/dev/null" c 1 3
+sudo mknod "${INITRD_DIR}/dev/ttyS0" c 4 64
+sudo mknod "${INITRD_DIR}/dev/fuse" c 10 229
 
 echo "==> Installing mount config..."
 cp "${SCRIPT_DIR}/mount-config.json" "${INITRD_DIR}/mount_config.json"
