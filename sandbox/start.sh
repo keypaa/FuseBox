@@ -39,14 +39,14 @@ if ! rustup target list --installed 2>/dev/null | grep -q x86_64-unknown-linux-m
   rustup target add x86_64-unknown-linux-musl
 fi
 
-# Install envoy if missing (from official APT repo)
+# Install envoy if missing
 if ! command -v envoy >/dev/null 2>&1; then
-  echo "  Installing Envoy proxy..."
+  echo "  Installing Envoy proxy (from Tetrate APT repo)..."
   sudo apt-get update -qq
-  sudo apt-get install -y -qq apt-transport-https gnupg
-  curl -sL 'https://deb.dl.getenvoy.io/public/gpg.asc' | sudo gpg --dearmor -o /usr/share/keyrings/getenvoy-keyring.gpg
-  echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/getenvoy-keyring.gpg] https://deb.dl.getenvoy.io/public/deb/ubuntu $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/envoy.list
-  sudo apt-get update -qq && sudo apt-get install -y -qq envoy
+  sudo apt-get install -y -qq apt-transport-https gnupg lsb-release
+  curl -sL 'https://archive.tetratelabs.io/envoy-deb/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/tetrate-envoy-keyring.gpg 2>/dev/null || true
+  echo "deb [signed-by=/usr/share/keyrings/tetrate-envoy-keyring.gpg] https://archive.tetratelabs.io/envoy-deb/ $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/envoy.list 2>/dev/null || true
+  sudo apt-get update -qq 2>/dev/null && sudo apt-get install -y -qq envoy 2>/dev/null || echo "  Warning: envoy install failed (VM will still boot)"
 fi
 
 # 1. Build everything
@@ -68,10 +68,15 @@ SDS_PID=$!
 cd "${SCRIPT_DIR}"
 
 # 4. Start Envoy proxy (background)
-echo "[4/5] Starting Envoy egress proxy..."
-sudo envoy -c "${SCRIPT_DIR}/proxy/envoy.yaml" --base-id 0 &
-ENVOY_PID=$!
-sleep 2
+if command -v envoy >/dev/null 2>&1; then
+  echo "[4/5] Starting Envoy egress proxy..."
+  sudo envoy -c "${SCRIPT_DIR}/proxy/envoy.yaml" --base-id 0 &
+  ENVOY_PID=$!
+  sleep 2
+else
+  echo "[4/5] Skipping Envoy (not installed)..."
+  ENVOY_PID=""
+fi
 
 # 5. Launch the Firecracker VM
 echo "[5/5] Launching Firecracker microVM..."
@@ -86,9 +91,9 @@ echo "  Control API:    http://192.0.2.2:2025"
 echo "  SDS PID:        ${SDS_PID}"
 echo "  Envoy PID:      ${ENVOY_PID}"
 echo ""
-echo "  To stop: Ctrl+C or: sudo kill ${SDS_PID} ${ENVOY_PID}; network/teardown-tap.sh"
+echo "  To stop: Ctrl+C or: sudo kill ${SDS_PID} ${ENVOY_PID:-}; network/teardown-tap.sh"
 echo "=========================================="
 
 # Wait for interrupt
-trap "echo 'Shutting down...'; sudo kill ${SDS_PID} ${ENVOY_PID} 2>/dev/null; sudo network/teardown-tap.sh; exit 0" INT TERM
+trap "echo 'Shutting down...'; sudo kill ${SDS_PID} ${ENVOY_PID:-} 2>/dev/null; sudo network/teardown-tap.sh; exit 0" INT TERM
 wait
