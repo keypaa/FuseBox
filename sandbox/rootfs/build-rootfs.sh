@@ -23,11 +23,13 @@ docker_sg build --network host ${PULL_ARGS} -t "${IMAGE_NAME}" "${SCRIPT_DIR}"
 docker_sg tag "${IMAGE_NAME}:latest" "${REGISTRY}:latest"
 
 echo "==> Creating rootfs ext4 image..."
+# Remove old rootfs if present
+rm -f "${SCRIPT_DIR}/rootfs.ext4"
 # Create sparse 256GB file
 truncate -s "${ROOTFS_SIZE_KB}K" "${SCRIPT_DIR}/rootfs.ext4"
 
 # Format: no journal, zero UUID, eager init
-mkfs.ext4 -L '' \
+mkfs.ext4 -F -L '' \
   -U 00000000-0000-0000-0000-000000000000 \
   -E lazy_itable_init=0,lazy_journal_init=0 \
   -O ^has_journal \
