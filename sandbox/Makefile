@@ -1,4 +1,4 @@
-.PHONY: all kernel process-api initrd rootfs skills proxy network launch clean
+.PHONY: all kernel process-api initrd rootfs skills proxy network launch publish-rootfs clean
 
 all: process-api kernel initrd rootfs skills proxy
 
@@ -26,6 +26,9 @@ network:
 
 launch: all network
 	$(MAKE) -C firecracker launch
+
+publish-rootfs: rootfs
+	cd rootfs && sg docker -c "docker push ghcr.io/keypaa/fusebox-rootfs:latest"
 
 clean:
 	rm -f kernel/vmlinux kernel/build/

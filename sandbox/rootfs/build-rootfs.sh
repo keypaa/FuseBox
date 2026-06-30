@@ -2,14 +2,25 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REGISTRY="ghcr.io/keypaa/fusebox-rootfs"
 IMAGE_NAME="fusebox-rootfs"
 ROOTFS_SIZE_KB=268435456  # 256GB sparse
 
 # Wrap docker calls via sg for group access
 docker_sg() { sg docker -c "docker $*"; }
 
+# Try pulling from registry first (faster than building)
+echo "==> Attempting to pull rootfs image from ${REGISTRY}..."
+PULL_ARGS=""
+if docker_sg pull "${REGISTRY}:latest" 2>/dev/null; then
+    docker_sg tag "${REGISTRY}:latest" "${IMAGE_NAME}:latest"
+    echo "==> Using pulled image."
+    PULL_ARGS="--cache-from ${REGISTRY}:latest"
+fi
+
 echo "==> Building rootfs Docker image..."
-docker_sg build --network host -t "${IMAGE_NAME}" "${SCRIPT_DIR}"
+docker_sg build --network host ${PULL_ARGS} -t "${IMAGE_NAME}" "${SCRIPT_DIR}"
+docker_sg tag "${IMAGE_NAME}:latest" "${REGISTRY}:latest"
 
 echo "==> Creating rootfs ext4 image..."
 # Create sparse 256GB file
