@@ -39,14 +39,10 @@ if ! rustup target list --installed 2>/dev/null | grep -q x86_64-unknown-linux-m
   rustup target add x86_64-unknown-linux-musl
 fi
 
-# Install envoy if missing
+# Warn if envoy is missing (needed for egress proxy)
 if ! command -v envoy >/dev/null 2>&1; then
-  echo "  Installing Envoy proxy (from Tetrate APT repo)..."
-  sudo apt-get update -qq
-  sudo apt-get install -y -qq apt-transport-https gnupg lsb-release
-  curl -sL 'https://archive.tetratelabs.io/envoy-deb/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/tetrate-envoy-keyring.gpg 2>/dev/null || true
-  echo "deb [signed-by=/usr/share/keyrings/tetrate-envoy-keyring.gpg] https://archive.tetratelabs.io/envoy-deb/ $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/envoy.list 2>/dev/null || true
-  sudo apt-get update -qq 2>/dev/null && sudo apt-get install -y -qq envoy 2>/dev/null || echo "  Warning: envoy install failed (VM will still boot)"
+  echo "  Note: envoy not installed. Egress proxy will be skipped."
+  echo "  Install manually: https://www.envoyproxy.io/docs/envoy/latest/start/install"
 fi
 
 # 1. Build everything
