@@ -6,6 +6,12 @@ KERNEL_URL="https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-${KERNEL_VERSION}
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BUILD_DIR="${SCRIPT_DIR}/build"
 
+if [ -f "${SCRIPT_DIR}/vmlinux" ]; then
+    echo "==> vmlinux already exists, skipping kernel build."
+    ls -lh "${SCRIPT_DIR}/vmlinux"
+    exit 0
+fi
+
 echo "==> Downloading Linux ${KERNEL_VERSION}..."
 mkdir -p "${BUILD_DIR}"
 cd "${BUILD_DIR}"
