@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
+use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -30,10 +31,10 @@ struct Args {
     firecracker_init: bool,
 
     #[arg(long, default_value = "0.0.0.0:2024")]
-    addr: String,
+    addr: std::net::SocketAddr,
 
     #[arg(long, default_value = "0.0.0.0:2025")]
-    control_server_addr: String,
+    control_server_addr: std::net::SocketAddr,
 
     #[arg(long)]
     memory_limit_bytes: Option<u64>,
@@ -54,7 +55,7 @@ struct SandboxState {
     active_tasks: HashMap<Uuid, u32>, // Task UUID -> Subprocess PID
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     // Initialize tracing framework for logging
     tracing_subscriber::fmt::init();
