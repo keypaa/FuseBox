@@ -20,7 +20,9 @@ fi
 rm -f "${FC_SOCKET}"
 
 echo "==> Launching Firecracker microVM..."
-sudo "${FC_BINARY}" --api-sock "${FC_SOCKET}" > /tmp/fusebox-firecracker.log 2>&1 &
+# Line-buffer stdout (guest serial) to a file so output is visible in real
+# time; redirect stdin from /dev/null. Script already runs as root via sudo.
+stdbuf -oL "${FC_BINARY}" --api-sock "${FC_SOCKET}" > /tmp/fusebox-serial.log 2>&1 < /dev/null &
 FC_PID=$!
 
 # Wait for socket to appear
@@ -44,7 +46,7 @@ EOF
 # Set machine config
 sudo curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/machine-config' \
   -H 'Content-Type: application/json' \
-  -d '{"vcpu_count":1,"mem_size_mib":3998,"smt":false,"track_dirty_pages":true}'
+  -d '{"vcpu_count":1,"mem_size_mib":2048,"smt":false,"track_dirty_pages":true}'
 
 # Attach drives
 sudo curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/drives/rootfs' \
@@ -68,6 +70,8 @@ sudo curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/network-interfac
   -H 'Content-Type: application/json' \
   -d '{"iface_id":"eth0","guest_mac":"02:fc:00:00:00:01","host_dev_name":"fc-tap0"}'
 
+# Capture guest serial console to /tmp/fusebox-serial.log via stdout (above).
+
 echo "==> Starting VM..."
 sudo curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/actions' \
   -H 'Content-Type: application/json' \
@@ -76,7 +80,10 @@ sudo curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/actions' \
 echo "==> VM launched (Firecracker PID: ${FC_PID})"
 echo "==> Connect to process_api WebSocket: ws://192.0.2.2:2024"
 echo "==> Control API: http://192.0.2.2:2025/status"
-echo "==> Serial console log: /tmp/fusebox-firecracker.log"
+echo "==> Serial console log: /tmp/fusebox-serial.log"
 echo ""
 echo "==> To connect to the VM's bash shell via WebSocket:"
 echo "    websocat ws://192.0.2.2:2024"
+echo ""
+echo "==> Keeping Firecracker in the foreground (Ctrl-C to stop)..."
+wait "${FC_PID}"

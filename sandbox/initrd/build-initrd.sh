@@ -28,6 +28,7 @@ cat "${SCRIPT_DIR}"/*.pem > "${INITRD_DIR}/etc/ssl/certs/ca-certificates.crt"
 
 echo "==> Creating essential device nodes..."
 sudo mknod "${INITRD_DIR}/dev/console" c 5 1
+sudo mknod "${INITRD_DIR}/dev/kmsg" c 1 11
 sudo mknod "${INITRD_DIR}/dev/null" c 1 3
 sudo mknod "${INITRD_DIR}/dev/zero" c 1 5
 sudo mknod "${INITRD_DIR}/dev/random" c 1 8

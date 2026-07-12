@@ -1,9 +1,152 @@
 use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
+use std::os::unix::io::AsRawFd;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
+
+/// Wire PID 1's stdio file descriptors (0/1/2) to the serial console.
+///
+/// In this Firecracker microVM the kernel hands PID 1 stdio fds that return
+/// EIO on write, which makes Rust's stdio layer (println!/eprintln!/tracing)
+/// panic at startup ("failed printing to stderr: I/O error (os error 5)").
+/// Opening /dev/console and dup2-ing it onto 0/1/2 makes those fds usable,
+/// exactly like the known-working `minimal_test` (which writes to
+/// /dev/console directly).
+/// Write a line to /dev/kmsg (char 1,11) so it reaches the kernel log and
+/// therefore the serial console, even when the stdio fds (0/1/2) are broken.
+fn kmsg(msg: &str) {
+    if let Ok(mut f) = fs::OpenOptions::new().write(true).open("/dev/kmsg") {
+        let _ = f.write_all(msg.as_bytes());
+        let _ = f.write_all(b"\n");
+    }
+}
+
+/// Install a panic hook that reports the panic to /dev/kmsg. Without this,
+/// a panic during early startup writes to stderr (fd 2), which is broken in
+/// this VM and the message is silently lost.
+fn install_panic_hook() {
+    std::panic::set_hook(Box::new(|info| {
+        let p = info.payload();
+        let m = if let Some(s) = p.downcast_ref::<String>() {
+            s.clone()
+        } else if let Some(s) = p.downcast_ref::<&str>() {
+            s.to_string()
+        } else {
+            "<?>".to_string()
+        };
+        kmsg(&format!(
+            "process_api PANIC: {} @ {:?}",
+            m,
+            info.location()
+        ));
+    }));
+}
+
+/// Open a console/serial device and configure it so userspace writes succeed.
+///
+/// In this Firecracker microVM the serial has no modem control lines, so the
+/// tty driver reports "no carrier" (DCD) and returns EIO on write unless the
+/// `CLOCAL` termios flag (ignore modem status lines) is set. The kernel's raw
+/// `printk` bypasses this, which is why boot messages reach the host but
+/// userspace writes to /dev/ttyS0 / /dev/console fail with EIO. Setting
+/// `CLOCAL | CREAD` fixes it.
+fn open_console(path: &str) -> Option<fs::File> {
+    let f = fs::OpenOptions::new().read(true).write(true).open(path).ok()?;
+    let fd = f.as_raw_fd();
+    unsafe {
+        let mut t: libc::termios = std::mem::zeroed();
+        if libc::tcgetattr(fd, &mut t) == 0 {
+            t.c_cflag |= libc::CLOCAL | libc::CREAD;
+            let _ = libc::tcsetattr(fd, libc::TCSANOW, &t);
+        }
+    }
+    Some(f)
+}
+
+fn init_logging() {
+    // Pick the first device that is actually writable. In this VM the serial
+    // tty (/dev/ttyS0, /dev/console) accepts kernel printk but returns EIO on
+    // userspace writes, so the reliable fallback is /dev/kmsg, which Firecracker
+    // forwards to the serial console (captured in /tmp/fusebox-serial.log).
+    //
+    // We verify by dup2-ing onto 0/1/2 and doing a test write to fd 2.
+    //
+    // IMPORTANT: keep the File alive until after the dup2 syscalls, otherwise
+    // dropping it closes the source fd and dup2 fails with EBADF.
+    let devices: [&str; 3] = ["/dev/ttyS0", "/dev/console", "/dev/kmsg"];
+    let mut chosen: Option<(fs::File, &'static str)> = None;
+    for &path in devices.iter() {
+        if let Some(f) = open_console(path) {
+            let fd = f.as_raw_fd();
+            let _ = dup2_syscall(fd, 0);
+            let _ = dup2_syscall(fd, 1);
+            let _ = dup2_syscall(fd, 2);
+            // Keep fd observable so the optimizer does not dead-code-eliminate
+            // the syscalls at -O3.
+            std::hint::black_box(fd);
+            let test = write_to_fd2(b"process_api: fd2 write test\n");
+            if test >= 0 {
+                chosen = Some((f, path));
+                kmsg(&format!(
+                    "process_api init_logging: using {path} (fd={fd}); fd2 test-write rc={test}"
+                ));
+                break;
+            } else {
+                kmsg(&format!(
+                    "process_api init_logging: {path} (fd={fd}) fd2 test-write rc={test}, trying next"
+                ));
+            }
+        } else {
+            kmsg(&format!("process_api init_logging: cannot open {path}"));
+        }
+    }
+    match chosen {
+        Some(_) => {
+            // fd 0/1/2 now point at a working device, so default tracing
+            // (stderr) is safe.
+            tracing_subscriber::fmt().with_writer(std::io::stderr).init();
+        }
+        None => {
+            kmsg("process_api init_logging: no writable console device found; logging to stderr (may be broken)");
+            tracing_subscriber::fmt().init();
+        }
+    }
+}
+
+#[inline(never)]
+fn dup2_syscall(oldfd: i32, newfd: i32) -> i64 {
+    let mut ret: i64;
+    unsafe {
+        core::arch::asm!(
+            "syscall",
+            inout("rax") 33i64 => ret,
+            in("rdi") oldfd as u64,
+            in("rsi") newfd as u64,
+            out("rcx") _, out("r11") _,
+            options(nostack, preserves_flags)
+        );
+    }
+    ret
+}
+
+#[inline(never)]
+fn write_to_fd2(buf: &[u8]) -> i64 {
+    let mut ret: i64;
+    unsafe {
+        core::arch::asm!(
+            "syscall",
+            inout("rax") 1i64 => ret,
+            in("rdi") 2u64,
+            in("rsi") buf.as_ptr() as u64,
+            in("rdx") buf.len() as u64,
+            out("rcx") _, out("r11") _,
+            options(nostack, preserves_flags)
+        );
+    }
+    ret
+}
 
 use anyhow::Result;
 use bytes::Bytes;
@@ -57,8 +200,12 @@ struct SandboxState {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
-    // Initialize tracing framework for logging
-    tracing_subscriber::fmt::init();
+    // Surface any early panic to /dev/kmsg before doing anything else.
+    install_panic_hook();
+    // Route all logging directly to /dev/console (the serial). The kernel
+    // does not reliably wire PID 1's stdio fds (0/1/2) to the console
+    // in this microVM, and Rust's stdio layer panics on those fds.
+    init_logging();
     let args = Args::parse();
     
     let state = Arc::new(Mutex::new(SandboxState {
