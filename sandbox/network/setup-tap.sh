@@ -20,6 +20,12 @@ ip link set "${TAP_DEV}" address "${GATEWAY_MAC}"
 echo "==> Enabling IP forwarding"
 echo 1 > /proc/sys/net/ipv4/ip_forward
 
+echo "==> Redirecting VM egress (80/443) to Envoy on ${GATEWAY_IP}:1080/1443"
+# Transparent interception: guest traffic to arbitrary :80/:443 is DNAT'd to
+# the Envoy listeners (kept off host 80/443 to avoid clashing with traefik).
+iptables -t nat -A PREROUTING -i "${TAP_DEV}" -p tcp --dport 80 -j DNAT --to-destination "${GATEWAY_IP}:1080"
+iptables -t nat -A PREROUTING -i "${TAP_DEV}" -p tcp --dport 443 -j DNAT --to-destination "${GATEWAY_IP}:1443"
+
 echo "==> Configuring NAT (MASQUERADE) for VM outbound"
 iptables -t nat -A POSTROUTING -o "$(ip route show default | awk '{print $5}' | head -1)" -j MASQUERADE
 iptables -A FORWARD -i "${TAP_DEV}" -o "$(ip route show default | awk '{print $5}' | head -1)" -j ACCEPT

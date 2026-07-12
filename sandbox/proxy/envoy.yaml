@@ -19,7 +19,7 @@ static_resources:
       address:
         socket_address:
           address: 192.0.2.1
-          port_value: 80
+          port_value: 1080
       filter_chains:
         - filters:
             - name: envoy.filters.network.http_connection_manager
@@ -33,7 +33,7 @@ static_resources:
                 http_filters:
                   - name: envoy.filters.http.lua
                     typed_config:
-                      "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.LuaPerRoute
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
                       # Block private/loopback destinations
                       inline_code: |
                         function envoy_on_request(request_handle)
@@ -74,7 +74,7 @@ static_resources:
       address:
         socket_address:
           address: 192.0.2.1
-          port_value: 443
+          port_value: 1443
       filter_chains:
         - filters:
             - name: envoy.filters.network.http_connection_manager
@@ -88,7 +88,7 @@ static_resources:
                 http_filters:
                   - name: envoy.filters.http.lua
                     typed_config:
-                      "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.LuaPerRoute
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
                       inline_code: |
                         -- Allowlist of permitted domains (confirmed from live sandbox)
                         local ALLOWLIST = {
@@ -177,34 +177,38 @@ static_resources:
                         grpc_services:
                           - envoy_grpc:
                               cluster_name: sds_server
-                # Trusted CA bundle injected into VM guest
-                validation_context:
-                  trusted_ca:
-                    filename: /opt/fusebox/certs/ca/egress-gateway-ca-production.pem
 
   clusters:
     # ─── Dynamic forward proxy (HTTP) ────────────────────────────────────────
     - name: dynamic_forward_proxy
-      type: LOGICAL_DNS
-      lb_policy: ROUND_ROBIN
-      load_assignment:
-        cluster_name: dynamic_forward_proxy
-        endpoints:
-          - lb_endpoints:
-              - endpoint:
-                  address:
-                    socket_address:
-                      address: upstream_host
-                      port_value: 80
+      lb_policy: CLUSTER_PROVIDED
+      cluster_type:
+        name: envoy.clusters.dynamic_forward_proxy
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.clusters.dynamic_forward_proxy.v3.ClusterConfig
+          dns_cache_config:
+            name: shared_dns_cache
+            dns_lookup_family: V4_ONLY
+            dns_refresh_rate: 60s
+            host_ttl: 300s
+      typed_extension_protocol_options:
+        envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+          "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+          explicit_http_config:
+            http2_protocol_options: {}
+          upstream_http_protocol_options:
+            auto_sni: true
+            auto_san_validation: true
 
     # ─── Dynamic forward proxy (HTTPS/TLS upstream) ───────────────────────────
     - name: dynamic_forward_proxy_tls
-      type: STRICT_DNS
-      lb_policy: ROUND_ROBIN
+      lb_policy: CLUSTER_PROVIDED
       dns_lookup_family: V4_ONLY
       typed_extension_protocol_options:
         envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
           "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+          explicit_http_config:
+            http2_protocol_options: {}
           upstream_http_protocol_options:
             auto_sni: true
             auto_san_validation: true
@@ -249,6 +253,11 @@ static_resources:
           "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
           explicit_http_config:
             http2_protocol_options: {}
+
+# ─── Node identity (required for SDS) ─────────────────────────────────────────
+node:
+  id: fusebox-egress-proxy
+  cluster: fusebox-egress-proxy
 
 # ─── Admin interface (internal only) ─────────────────────────────────────────
 admin:
