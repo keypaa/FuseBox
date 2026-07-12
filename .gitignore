@@ -5,3 +5,30 @@ sandbox/rootfs/build/
 
 # Windows NTFS alternate data stream artifacts
 *:Zone.Identifier
+
+# Debug handoff notes (local working docs, not repo content)
+HANDOFF*.md
+
+# Secrets / private keys — never commit (egress CA private key, etc.)
+*.key
+
+# Large regenerable binaries (rebuild via build-kernel.sh / build-initrd.sh
+# or download the prebuilt firecracker binary). Not needed in the repo.
+sandbox/kernel/vmlinux
+sandbox/firecracker/firecracker
+sandbox/initrd/initrd.img
+sandbox/skills/*.squashfs
+sandbox/rclone/*.squashfs
+sandbox/proxy/sds-server/sds-server
+
+# Scratch / debug artifacts from bisect investigations
+sandbox/initrd/initrd-*/
+sandbox/initrd/idbg/
+sandbox/initrd/initrd-staging/
+a.out
+sandbox/process_api/src/bin/test_*.rs
+sandbox/process_api/src/bin/debug_init.rs
+sandbox/process_api/src/bin/min_rust_init.rs
+sandbox/process_api/src/bin/min_std_init.rs
+sandbox/process_api/src/bin/steps.rs
+
