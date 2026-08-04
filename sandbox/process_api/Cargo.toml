@@ -6,7 +6,7 @@ description = "Firecracker microVM sandbox supervisor — PID 1 init + WebSocket
 
 [dependencies]
 libc = "0.2"
-tokio = { version = "1.41", features = ["full"] }
+tokio = { version = "1.41", features = ["rt", "macros", "net", "time", "sync", "io-util", "io-std", "process"] }
 tokio-tungstenite = "0.24"
 hyper = { version = "1.6", features = ["server", "http1"] }
 hyper-util = { version = "0.1", features = ["tokio"] }

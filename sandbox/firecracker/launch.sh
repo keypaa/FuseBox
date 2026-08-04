@@ -37,8 +37,8 @@ sudo curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/boot-source' \
   -H 'Content-Type: application/json' \
   -d @- << EOF
 {
-  "kernel_image_path": "${SANDBOX_DIR}/kernel/vmlinux",
-  "boot_args": "console=ttyS0 reboot=k panic=1 nomodule random.trust_cpu=1 ipv6.disable=1 swiotlb=noforce rdinit=/process_api init_on_free=1 -- --firecracker-init --addr 0.0.0.0:2024 --block-local-connections",
+    "kernel_image_path": "${SANDBOX_DIR}/kernel/vmlinux",
+    "boot_args": "console=ttyS0 reboot=k panic=1 nomodule random.trust_cpu=1 ipv6.disable=1 net.ifnames=0 swiotlb=noforce rdinit=/process_api init_on_free=1 pci=off -- --firecracker-init --addr 0.0.0.0:2024 --block-local-connections",
   "initrd_path": "${SANDBOX_DIR}/initrd/initrd.img"
 }
 EOF

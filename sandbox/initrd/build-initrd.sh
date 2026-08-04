@@ -26,15 +26,8 @@ cp "${SCRIPT_DIR}"/*.pem "${INITRD_DIR}/etc/ssl/certs/"
 # Also create a unified bundle
 cat "${SCRIPT_DIR}"/*.pem > "${INITRD_DIR}/etc/ssl/certs/ca-certificates.crt"
 
-echo "==> Creating essential device nodes..."
-sudo mknod "${INITRD_DIR}/dev/console" c 5 1
-sudo mknod "${INITRD_DIR}/dev/kmsg" c 1 11
-sudo mknod "${INITRD_DIR}/dev/null" c 1 3
-sudo mknod "${INITRD_DIR}/dev/zero" c 1 5
-sudo mknod "${INITRD_DIR}/dev/random" c 1 8
-sudo mknod "${INITRD_DIR}/dev/urandom" c 1 9
-sudo mknod "${INITRD_DIR}/dev/ttyS0" c 4 64
-sudo mknod "${INITRD_DIR}/dev/fuse" c 10 229
+# Device nodes are provided by devtmpfs at runtime (kernel auto-mounts).
+# Explicit mknod is not needed and requires root on the build host.
 
 echo "==> Installing mount config..."
 cp "${SCRIPT_DIR}/mount-config.json" "${INITRD_DIR}/mount_config.json"

@@ -17,8 +17,8 @@ mkdir -p "${BUILD_DIR}"
 cd "${BUILD_DIR}"
 
 if [ ! -f "linux-${KERNEL_VERSION}/Makefile" ]; then
-    curl -L "${KERNEL_URL}" -o "linux-${KERNEL_VERSION}.tar.xz"
-    tar xf "linux-${KERNEL_VERSION}.tar.xz"
+    curl -L "${KERNEL_URL}" -o "linux-${KERNEL_VERSION}.tar.gz"
+    tar xzf "linux-${KERNEL_VERSION}.tar.gz"
 fi
 
 cd "linux-${KERNEL_VERSION}"

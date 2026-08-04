@@ -198,14 +198,176 @@ struct SandboxState {
     active_tasks: HashMap<Uuid, u32>, // Task UUID -> Subprocess PID
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<()> {
-    // Surface any early panic to /dev/kmsg before doing anything else.
-    install_panic_hook();
+/// Check if an interface is a real Ethernet device (type 1 = ARPHRD_ETHER).
+fn is_ether_iface(name: &str) -> bool {
+    let path = format!("/sys/class/net/{name}/type");
+    std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| s.trim().parse::<i32>().ok())
+        .map(|t| t == 1)
+        .unwrap_or(false)
+}
+
+/// Wait for any Ethernet network interface to appear and configure it.
+fn setup_guest_network(_: &str, addr: &str, netmask: &str) {
+    let iface = 'outer: loop {
+        for _ in 0..300 {
+            if let Ok(entries) = std::fs::read_dir("/sys/class/net") {
+                for entry in entries.flatten() {
+                    let name = entry.file_name();
+                    let name = name.to_string_lossy();
+                    if is_ether_iface(&name) {
+                        break 'outer Some(name.to_string());
+                    }
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        kmsg("setup_guest_network: no Ethernet interface appeared after 30s");
+        break None;
+    };
+    if let Some(ifname) = iface {
+        kmsg(&format!("setup_guest_network: found interface {ifname}"));
+        configure_interface(&ifname, addr, netmask);
+    }
+}
+
+/// Configure a network interface with a static IP via ioctl.
+fn configure_interface(ifname: &str, addr: &str, netmask: &str) {
+    use std::net::Ipv4Addr;
+    let sock = match unsafe { libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0) } {
+        -1 => { kmsg("setup_guest_network: socket() failed"); return; }
+        fd => fd,
+    };
+    let mut ifr: libc::ifreq = unsafe { std::mem::zeroed() };
+    let bytes = ifname.as_bytes();
+    let len = bytes.len().min(libc::IFNAMSIZ - 1);
+    for i in 0..len { ifr.ifr_name[i] = bytes[i] as libc::c_char; }
+    let ip: u32 = addr.parse::<Ipv4Addr>().map(|a| u32::from(a).to_be()).unwrap_or(0);
+    let ip_bytes = ip.to_be_bytes();
+    let mut sa: libc::sockaddr = unsafe { std::mem::zeroed() };
+    sa.sa_family = libc::AF_INET as u16;
+    for i in 0..4 { sa.sa_data[2 + i] = ip_bytes[i] as libc::c_char; }
+    ifr.ifr_ifru.ifru_addr = sa;
+    let ret = unsafe { libc::ioctl(sock, libc::SIOCSIFADDR as libc::Ioctl, &ifr) };
+    if ret != 0 { kmsg(&format!("setup_guest_network: SIOCSIFADDR failed: {}", std::io::Error::last_os_error())); }
+    let mask: u32 = netmask.parse::<Ipv4Addr>().map(|a| u32::from(a).to_be()).unwrap_or(0);
+    let mask_bytes = mask.to_be_bytes();
+    let mut sa2: libc::sockaddr = unsafe { std::mem::zeroed() };
+    sa2.sa_family = libc::AF_INET as u16;
+    for i in 0..4 { sa2.sa_data[2 + i] = mask_bytes[i] as libc::c_char; }
+    ifr.ifr_ifru.ifru_netmask = sa2;
+    let ret = unsafe { libc::ioctl(sock, libc::SIOCSIFNETMASK as libc::Ioctl, &ifr) };
+    if ret != 0 { kmsg(&format!("setup_guest_network: SIOCSIFNETMASK failed: {}", std::io::Error::last_os_error())); }
+    let ret = unsafe { libc::ioctl(sock, libc::SIOCGIFFLAGS as libc::Ioctl, &ifr) };
+    if ret == 0 {
+        let flags = unsafe { ifr.ifr_ifru.ifru_flags };
+        ifr.ifr_ifru.ifru_flags = (flags | (libc::IFF_UP as i16)) as i16;
+        let ret = unsafe { libc::ioctl(sock, libc::SIOCSIFFLAGS as libc::Ioctl, &ifr) };
+        if ret != 0 { kmsg(&format!("setup_guest_network: SIOCSIFFLAGS failed: {}", std::io::Error::last_os_error())); }
+    } else {
+        kmsg(&format!("setup_guest_network: SIOCGIFFLAGS failed: {}", std::io::Error::last_os_error()));
+    }
+    unsafe { libc::close(sock); }
+    kmsg(&format!("setup_guest_network: {ifname} -> {addr}/{netmask}"));
+}
+
+fn main() -> Result<()> {
+    // Mount devtmpfs so /dev/kmsg exists. Do this BEFORE tokio runtime init
+    // so we can log panics via kmsg even if tokio fails.
+    let _ = std::fs::create_dir_all("/dev");
+    let _ = nix::mount::mount(
+        Some("devtmpfs"), "/dev", Some("devtmpfs"),
+        nix::mount::MsFlags::empty(), None::<&str>,
+    );
+
+    // Install panic hook that writes to /dev/kmsg BEFORE any tokio code.
+    std::panic::set_hook(Box::new(|info| {
+        let msg = {
+            let p = info.payload();
+            if let Some(s) = p.downcast_ref::<String>() {
+                format!("process_api PANIC: {s}")
+            } else if let Some(s) = p.downcast_ref::<&str>() {
+                format!("process_api PANIC: {s}")
+            } else {
+                format!("process_api PANIC: <?>")
+            }
+        };
+        let _ = (|| -> std::io::Result<()> {
+            std::fs::OpenOptions::new().write(true).open("/dev/kmsg")?.write_all(msg.as_bytes())?;
+            Ok(())
+        })();
+        if let Some(loc) = info.location() {
+            let _ = (|| -> std::io::Result<()> {
+                std::fs::OpenOptions::new().write(true).open("/dev/kmsg")?.write_all(format!("  at {loc}\n").as_bytes())?;
+                Ok(())
+            })();
+        }
+    }));
+
+    let _ = (|| -> std::io::Result<()> {
+        std::fs::OpenOptions::new().write(true).open("/dev/kmsg")?.write_all(b"process_api: building tokio runtime\n")
+    })();
+
+    fn build_runtime() -> Result<tokio::runtime::Runtime> {
+        use std::panic::catch_unwind;
+        match catch_unwind(|| {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_io()
+                .enable_time()
+                .build()
+        }) {
+            Ok(Ok(rt)) => Ok(rt),
+            Ok(Err(e)) => {
+                kmsg(&format!("tokio build error: {e}"));
+                Err(anyhow::anyhow!("tokio build error: {e}"))
+            }
+            Err(panic) => {
+                kmsg("tokio build panicked (signal init failed), falling back to time-only runtime");
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_time()
+                    .build()
+                    .map_err(|e| anyhow::anyhow!("tokio (time-only) build error: {e}"))
+            }
+        }
+    }
+
+    let rt = build_runtime()?;
+
+    let _ = (|| -> std::io::Result<()> {
+        std::fs::OpenOptions::new().write(true).open("/dev/kmsg")?.write_all(b"process_api: runtime built, entering block_on\n")
+    })();
+
+    rt.block_on(async { main_async().await })
+}
+
+async fn main_async() -> Result<()> {
+    // Also mount proc and sysfs (needed by tokio/later tooling)
+    let _ = fs::create_dir_all("/proc");
+    let _ = nix::mount::mount(
+        Some("proc"),
+        "/proc",
+        Some("proc"),
+        nix::mount::MsFlags::empty(),
+        None::<&str>,
+    );
+    let _ = fs::create_dir_all("/sys");
+    let _ = nix::mount::mount(
+        Some("sysfs"),
+        "/sys",
+        Some("sysfs"),
+        nix::mount::MsFlags::empty(),
+        None::<&str>,
+    );
+
     // Route all logging directly to /dev/console (the serial). The kernel
     // does not reliably wire PID 1's stdio fds (0/1/2) to the console
     // in this microVM, and Rust's stdio layer panics on those fds.
     init_logging();
+
+    // Configure guest network interface (eth0) with static IP.
+    // The host-side TAP is at 192.0.2.1/24; guest gets 192.0.2.2/24.
+    setup_guest_network("eth0", "192.0.2.2", "255.255.255.0");
     let args = Args::parse();
     
     let state = Arc::new(Mutex::new(SandboxState {
