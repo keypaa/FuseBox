@@ -21,6 +21,9 @@ sandbox/skills/*.squashfs
 sandbox/rclone/*.squashfs
 sandbox/proxy/sds-server/sds-server
 
+# Static guest shell binaries (fetch via sandbox/tools/fetch-static-binaries.sh)
+sandbox/tools/bin/
+
 # Scratch / debug artifacts from bisect investigations
 sandbox/initrd/initrd-*/
 sandbox/initrd/idbg/

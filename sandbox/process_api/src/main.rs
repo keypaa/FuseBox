@@ -243,7 +243,7 @@ fn configure_interface(ifname: &str, addr: &str, netmask: &str) {
     let bytes = ifname.as_bytes();
     let len = bytes.len().min(libc::IFNAMSIZ - 1);
     for i in 0..len { ifr.ifr_name[i] = bytes[i] as libc::c_char; }
-    let ip: u32 = addr.parse::<Ipv4Addr>().map(|a| u32::from(a).to_be()).unwrap_or(0);
+    let ip: u32 = addr.parse::<Ipv4Addr>().map(|a| u32::from(a)).unwrap_or(0);
     let ip_bytes = ip.to_be_bytes();
     let mut sa: libc::sockaddr = unsafe { std::mem::zeroed() };
     sa.sa_family = libc::AF_INET as u16;
@@ -251,7 +251,7 @@ fn configure_interface(ifname: &str, addr: &str, netmask: &str) {
     ifr.ifr_ifru.ifru_addr = sa;
     let ret = unsafe { libc::ioctl(sock, libc::SIOCSIFADDR as libc::Ioctl, &ifr) };
     if ret != 0 { kmsg(&format!("setup_guest_network: SIOCSIFADDR failed: {}", std::io::Error::last_os_error())); }
-    let mask: u32 = netmask.parse::<Ipv4Addr>().map(|a| u32::from(a).to_be()).unwrap_or(0);
+    let mask: u32 = netmask.parse::<Ipv4Addr>().map(|a| u32::from(a)).unwrap_or(0);
     let mask_bytes = mask.to_be_bytes();
     let mut sa2: libc::sockaddr = unsafe { std::mem::zeroed() };
     sa2.sa_family = libc::AF_INET as u16;
@@ -585,7 +585,7 @@ async fn handle_ws_routing(raw_stream: TcpStream, state: Arc<Mutex<SandboxState>
     let mem_limit = state.lock().await.args.memory_limit_bytes;
 
     // Spawn execution subprocess wrapper
-    let mut sub_process = match Command::new("bash")
+    let mut sub_process = match Command::new("/bin/bash")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
