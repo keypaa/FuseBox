@@ -277,6 +277,20 @@ fn configure_interface(ifname: &str, addr: &str, netmask: &str) {
 }
 
 fn main() -> Result<()> {
+    // Launch-context hygiene: if the supervisor was started as a background
+    // job from a shell that ignores SIGINT/SIGQUIT/SIGPIPE, those ignored
+    // dispositions inherit across exec into every guest shell — and bash
+    // cannot reset signals that arrived ignored-on-entry, so Ctrl-C would be
+    // dead in ALL sessions (the tty echoes ^C but nobody acts on it).
+    // Reset to defaults so children get sane dispositions regardless of how
+    // this binary was launched. Harmless for the kernel-started PID 1 case,
+    // which already receives clean dispositions.
+    unsafe {
+        libc::signal(libc::SIGINT, libc::SIG_DFL);
+        libc::signal(libc::SIGQUIT, libc::SIG_DFL);
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+
     // Mount devtmpfs so /dev/kmsg exists. Do this BEFORE tokio runtime init
     // so we can log panics via kmsg even if tokio fails.
     let _ = std::fs::create_dir_all("/dev");

@@ -303,7 +303,10 @@ async fn main() {
     // 5. Ctrl-C kills foreground job, shell survives -----------------------
     p.clear();
     p.send_line("sleep 60").await;
-    p.settle(500).await;
+    // Generous settle: \x03 must arrive only AFTER bash has forked sleep and
+    // tcsetpgrp-ed it to the foreground, else the SIGINT lands on bash's own
+    // group (pending-flag path) and the shell appears wedged for job-length.
+    p.settle(1500).await;
     p.send_text("\x03").await; // ETX -> SIGINT to foreground group
     if !p.expect("Ctrl-C echoes ^C", "^C", 5).await {
         failures += 1;
