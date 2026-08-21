@@ -444,9 +444,7 @@ async fn main_async() -> Result<()> {
         }
 
         // Signal snapstart readiness (Anthropic pattern: write sentinel)
-        if Path::new("/tmp/rclone-mounts/ready").exists() || true {
-            info!("SNAPSTART_READY: sandbox supervisor initialized");
-        }
+        info!("SNAPSTART_READY: sandbox supervisor initialized");
     }
 
     // 2. Resource Isolation Controller (Out-Of-Memory Polling Daemon)
@@ -498,19 +496,125 @@ async fn main_async() -> Result<()> {
     Ok(())
 }
 
-/// Linux System mount orchestrator handles file system virtualization
+/// One requested mount from /mount_config.json.
+#[derive(Debug, serde::Deserialize)]
+struct MountEntry {
+    device: String,
+    target: String,
+    #[serde(rename = "type")]
+    fs_type: String,
+    #[serde(default, deserialize_with = "deserialize_flex_options")]
+    options: Vec<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct MountConfig {
+    #[serde(default)]
+    ready_file: Option<String>,
+    #[serde(default)]
+    mounts: Vec<MountEntry>,
+}
+
+/// Accept `"ro"` or `["ro", "nosuid"]` for the options field.
+fn deserialize_flex_options<'de, D>(d: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::Deserialize as _;
+    let v = serde_json::Value::deserialize(d)?;
+    match v {
+        serde_json::Value::Null => Ok(vec![]),
+        serde_json::Value::String(s) => Ok(s
+            .split(',')
+            .map(|x| x.trim().to_string())
+            .filter(|x| !x.is_empty())
+            .collect()),
+        serde_json::Value::Array(a) => Ok(a
+            .into_iter()
+            .map(|x| x.as_str().unwrap_or_default().to_string())
+            .collect()),
+        other => Err(serde::de::Error::custom(format!(
+            "options must be a string or array of strings, got {other}"
+        ))),
+    }
+}
+
+/// Targets currently present in /proc/mounts (best effort: empty on error).
+fn active_mount_targets() -> std::collections::HashSet<String> {
+    let mut set = std::collections::HashSet::new();
+    if let Ok(content) = fs::read_to_string("/proc/mounts") {
+        for line in content.lines() {
+            if let Some(target) = line.split_whitespace().nth(1) {
+                set.insert(target.to_string());
+            }
+        }
+    }
+    set
+}
+
+/// Linux System mount orchestrator handles file system virtualization.
+///
+/// Reads /mount_config.json (baked into the initrd) and mounts each entry —
+/// typically the squashfs volumes attached as virtio block devices. Idempotent
+/// (targets already mounted are skipped, so POST /mount_root is safe) and
+/// tolerant: a failing entry logs an error but does not abort boot.
 fn execute_system_mounts() -> Result<()> {
+    let mut ready_file = "/tmp/rclone-mounts/ready".to_string();
     let config_path = Path::new("/mount_config.json");
     if config_path.exists() {
         let payload = fs::read_to_string(config_path)?;
-        info!("Parsing filesystem configurations: {}", payload);
-        // Real logic parses JSON maps to run nix::mount::mount targets
+        match serde_json::from_str::<MountConfig>(&payload) {
+            Ok(cfg) => {
+                if let Some(rf) = cfg.ready_file {
+                    ready_file = rf;
+                }
+                let mounted = active_mount_targets();
+                for entry in &cfg.mounts {
+                    if mounted.contains(&entry.target) {
+                        info!(
+                            "Mount {} -> {} already active, skipping",
+                            entry.device, entry.target
+                        );
+                        continue;
+                    }
+                    if let Err(e) = fs::create_dir_all(&entry.target) {
+                        error!("Cannot create mountpoint {}: {}", entry.target, e);
+                        continue;
+                    }
+                    let mut flags = nix::mount::MsFlags::empty();
+                    if entry.options.iter().any(|o| o == "ro") {
+                        flags |= nix::mount::MsFlags::MS_RDONLY;
+                    }
+                    match nix::mount::mount(
+                        Some(Path::new(&entry.device)),
+                        Path::new(&entry.target),
+                        Some(Path::new(&entry.fs_type)),
+                        flags,
+                        None::<&str>,
+                    ) {
+                        Ok(()) => info!(
+                            "Mounted {} ({}) -> {} {:?}",
+                            entry.device, entry.fs_type, entry.target, entry.options
+                        ),
+                        Err(e) => error!(
+                            "Mount {} -> {} failed: {}",
+                            entry.device, entry.target, e
+                        ),
+                    }
+                }
+            }
+            Err(e) => error!("Failed to parse /mount_config.json: {}", e),
+        }
+    } else {
+        info!("No /mount_config.json present; nothing to mount");
     }
-    
+
     // Drop Sentinel system files notifying host layers of environment completion
-    fs::create_dir_all("/tmp/rclone-mounts")?;
-    fs::write("/tmp/rclone-mounts/ready", "1")?;
-    info!("Sent system readiness token to /tmp/rclone-mounts/ready");
+    if let Some(parent) = Path::new(&ready_file).parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    fs::write(&ready_file, "1")?;
+    info!("Sent system readiness token to {}", ready_file);
     Ok(())
 }
 
@@ -616,6 +720,16 @@ async fn run_oom_guard(state: &Arc<Mutex<SandboxState>>) {
 /// back between master paths: modern kernels refuse /dev/ptmx unless a devpts
 /// instance is mounted (ptmx_open -> devpts_acquire), and some setups only
 /// expose the master as /dev/pts/ptmx inside the devpts root.
+///
+/// ioctl(2)'s request argument has a target-dependent type (c_int on musl,
+/// c_ulong on gnu); route calls through this wrapper.
+fn pty_ioctl(fd: libc::c_int, request: u32, arg: *mut libc::c_void) -> libc::c_int {
+    #[cfg(target_env = "musl")]
+    unsafe { libc::ioctl(fd, request as libc::c_int, arg) }
+    #[cfg(not(target_env = "musl"))]
+    unsafe { libc::ioctl(fd, request as libc::c_ulong, arg) }
+}
+
 #[allow(clippy::type_complexity)]
 fn open_pty(
     cols: u16,
@@ -623,8 +737,8 @@ fn open_pty(
 ) -> std::io::Result<(fs::File, fs::File, fs::File, fs::File, fs::File, i32)> {
     const OPEN_FLAGS: libc::c_int = libc::O_RDWR | libc::O_NOCTTY;
     // _IOR('T', 0x30, uint) / _IOW('T', 0x31, int): slave index + lock toggle.
-    const TIOCGPTN: libc::c_int = 0x8004_5430u32 as libc::c_int;
-    const TIOCSPTLCK: libc::c_int = 0x4004_5431u32 as libc::c_int;
+    const TIOCGPTN: u32 = 0x8004_5430;
+    const TIOCSPTLCK: u32 = 0x4004_5431;
 
     let mut master: libc::c_int = -1;
     for path in ["/dev/ptmx", "/dev/pts/ptmx"] {
@@ -642,8 +756,8 @@ fn open_pty(
         // Clear the slave lock and ask the kernel for the slave's pts index.
         let unlocked: libc::c_int = 0;
         let mut idx: libc::c_int = -1;
-        if libc::ioctl(master, TIOCSPTLCK, &unlocked) != 0
-            || libc::ioctl(master, TIOCGPTN, &mut idx) != 0
+        if pty_ioctl(master, TIOCSPTLCK, &unlocked as *const _ as *mut _) != 0
+            || pty_ioctl(master, TIOCGPTN, &mut idx as *mut _ as *mut libc::c_void) != 0
             || idx < 0
         {
             let e = std::io::Error::last_os_error();
@@ -1076,4 +1190,51 @@ async fn handle_ws_routing(raw_stream: TcpStream, state: Arc<Mutex<SandboxState>
     let _ = fs::remove_dir(format!("/sys/fs/cgroup/memory/process_api/{}", task_uuid));
 
     unsafe { libc::close(master_ctl_fd) };
+}
+
+#[cfg(test)]
+mod mount_config_tests {
+    use super::*;
+
+    #[test]
+    fn parses_full_config() {
+        let cfg: MountConfig = serde_json::from_str(
+            r#"{
+            "service_url": "https://api.anthropic.com",
+            "ready_file": "/tmp/rclone-mounts/ready",
+            "state_dir": "/tmp/rclone-mounts",
+            "mounts": [
+                {"device": "/dev/vdb", "target": "/mnt/filestore",
+                 "type": "squashfs", "options": ["ro"]},
+                {"device": "/dev/vdc", "target": "/mnt/skills/public",
+                 "type": "squashfs", "options": "ro"},
+                {"device": "/dev/vdd", "target": "/mnt/skills/examples",
+                 "type": "squashfs"}
+            ]
+        }"#,
+        )
+        .unwrap();
+        assert_eq!(cfg.mounts.len(), 3);
+        assert_eq!(cfg.ready_file.as_deref(), Some("/tmp/rclone-mounts/ready"));
+        assert_eq!(cfg.mounts[0].options, vec!["ro"]);
+        // string form normalizes to the same vector
+        assert_eq!(cfg.mounts[1].options, vec!["ro"]);
+        // omitted options default to empty
+        assert!(cfg.mounts[2].options.is_empty());
+    }
+
+    #[test]
+    fn parses_empty_mounts() {
+        let cfg: MountConfig = serde_json::from_str("{\"mounts\": []}").unwrap();
+        assert!(cfg.mounts.is_empty());
+        assert!(cfg.ready_file.is_none());
+    }
+
+    #[test]
+    fn rejects_bad_options_type() {
+        let parsed: Result<MountConfig, _> = serde_json::from_str(
+            r#"{"mounts":[{"device":"/d","target":"/t","type":"squashfs","options":42}]}"#,
+        );
+        assert!(parsed.is_err());
+    }
 }

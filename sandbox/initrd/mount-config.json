@@ -2,5 +2,9 @@
   "service_url": "https://api.anthropic.com",
   "ready_file": "/tmp/rclone-mounts/ready",
   "state_dir": "/tmp/rclone-mounts",
-  "mounts": []
+  "mounts": [
+    { "device": "/dev/vdb", "target": "/mnt/filestore", "type": "squashfs", "options": ["ro"] },
+    { "device": "/dev/vdc", "target": "/mnt/skills/public", "type": "squashfs", "options": ["ro"] },
+    { "device": "/dev/vdd", "target": "/mnt/skills/examples", "type": "squashfs", "options": ["ro"] }
+  ]
 }
