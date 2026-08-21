@@ -6,68 +6,96 @@
 ws://192.0.2.2:2024
 ```
 
-Each WebSocket connection spawns a new `/bin/bash` subprocess. The connection is closed when the subprocess exits or the client disconnects.
+Each WebSocket connection spawns a **PTY-backed interactive `/bin/bash`**: the
+shell runs as a session leader with the pty as its controlling terminal, so it
+behaves like a real terminal — PS1 prompt, readline (arrow keys, tab
+completion), job control, and signal keys all work. The connection closes when
+the shell exits or the client disconnects.
 
-## Client → Server (Commands)
+## Client → Server
 
-Send commands as **plain text** messages (not JSON). Each command must end with `\n`.
+### Shell input (raw bytes)
 
-```
-echo "hello world"
-ls /
-cat /etc/hosts
-```
+Any Text/Binary frame that is not a control frame is written **verbatim** to
+the pty master — exactly the bytes a keyboard would produce:
 
-There is no command framing — the server writes raw bytes to bash's stdin.
+| Bytes | Effect |
+|-------|--------|
+| `ls -la\n` | run command |
+| `\x1b[A` | Up arrow — recall history |
+| `\t` | Tab completion |
+| `\x03` | Ctrl-C — SIGINT to foreground job |
+| `\x04` | Ctrl-D — EOF |
 
-## Server → Client (Output)
+No framing is added; multi-byte paste works because bash's line discipline
+buffers it.
 
-Output is delivered as **JSON objects** with a `stream` field:
+### Control frames (JSON)
+
+A Text frame containing a recognized JSON object with a `"type"` field is
+interpreted as a control message:
 
 ```json
-{"stream":"stdout","text":"hello world"}
-{"stream":"stderr","text":"/bin/bash: line 1: badcmd: command not found"}
+{"type":"resize","cols":120,"rows":40}
+{"type":"ping"}
 ```
 
-On subprocess exit:
+- `resize` → `TIOCSWINSZ` on the pty (kernel raises `SIGWINCH`, so full-screen
+  programs like `vim`/`less` repaint). Default size is 80x24.
+- `ping` → answered with `{"event":"pong"}`.
+
+Everything else — including JSON-looking text — goes to the shell verbatim.
+
+## Server → Client
+
+Output chunks are streamed as they come out of the pty (not line-buffered):
+
+```json
+{"stream":"stdout","text":"root@fusebox:/ \u001b[?2004h"}
+```
+
+- Text is properly JSON-escaped (`serde_json`), safe for quotes, backslashes,
+  and any UTF-8; incomplete multi-byte sequences are carried across reads
+  instead of being mangled at chunk boundaries.
+- `stderr` merges into the same stream — inherent to a pty, like a real
+  terminal. There is no separate stderr stream.
+- Terminal escape sequences (colors, cursor movement) pass through untouched;
+  render them with a terminal emulator for the intended display.
+
+On session end:
 
 ```json
 {"event":"exit","code":0}
 ```
 
-### Stream Types
+Exit codes follow shell convention: `N` from exit status, negative `-SIGNAL`
+if the shell died to a signal.
 
-| Field | Description |
-|-------|-------------|
-| `stream: "stdout"` | Standard output from the subprocess |
-| `stream: "stderr"` | Standard error from the subprocess |
-| `event: "exit"` | Process terminated (with exit code) |
-
-### Line-Based Relay
-
-Output is relayed **line-by-line**. A line is defined as bytes ending with `\n`. If a command produces output without a trailing newline (e.g., a prompt), it will be buffered until the next newline appears.
-
-This means:
-- `echo hi` → one JSON message: `{"stream":"stdout","text":"hi"}`
-- `ls /` → one JSON message per line
-- Prompt text (no `\n`) → buffered, not visible until next newline
-
-## Control API
+### Control API
 
 ```
 http://192.0.2.2:2025
 ```
-
-### Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/status` | Health check |
 | POST | `/mount_root` | Inject session-specific mount config |
 
-## Limitations
+## Session lifecycle
 
-- **No PTY**: bash runs without a pseudo-terminal. No interactive prompt, no arrow key history, no tab completion.
-- **Single command per message**: each WebSocket text message is written verbatim to stdin. Multi-line commands work if they include `\n`.
-- **Line-buffered output**: output without trailing newline is delayed.
-- **No signal forwarding**: Ctrl+C in websocat closes the WebSocket, it doesn't send SIGINT to bash.
+- Client disconnects → supervisor sends `SIGHUP` to the whole session group,
+  escalates to `SIGKILL` after 1.5 s, then reports the exit event.
+- By default there is **no idle timeout**. Start process_api with
+  `--session-timeout-secs N` to reap sessions after N seconds (0 = disabled).
+
+## Testing
+
+`sandbox/process_api/examples/ws_probe.rs` drives the full matrix (prompt,
+execution, arrow-key history, tab completion, Ctrl-C, resize, ping, exit)
+against any running instance:
+
+```bash
+cargo build --release --example ws_probe   # host target is fine
+./target/release/examples/ws_probe ws://192.0.2.2:2024
+```

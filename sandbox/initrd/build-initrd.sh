@@ -42,7 +42,7 @@ chmod +x "${INITRD_DIR}/bin/bash"
 echo "==> Installing static busybox with coreutils applets..."
 cp "${STATIC_BUSYBOX}" "${INITRD_DIR}/bin/busybox"
 chmod +x "${INITRD_DIR}/bin/busybox"
-for applet in ls cat mkdir rm cp mv pwd touch find grep head tail wc printf echo env id uname mount ps kill sleep tar gzip gunzip cpio df du clear true false whoami su sh ash wget; do
+for applet in stty ls cat mkdir rm cp mv pwd touch find grep head tail wc printf echo env id uname mount ps kill sleep tar gzip gunzip cpio df du clear true false whoami su sh ash wget; do
     ln -sf busybox "${INITRD_DIR}/bin/${applet}"
 done
 

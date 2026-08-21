@@ -28,11 +28,16 @@ else
     echo "  FAIL: rootfs/rootfs.ext4 not found"
 fi
 
-# Test 4: Reserved blocks
-echo "[TEST 4] Rootfs reserved blocks set to 91%..."
+# Test 4: Reserved blocks (build-rootfs.sh sets -m 50)
+echo "[TEST 4] Rootfs reserved blocks set to 50%..."
 if [ -f rootfs/rootfs.ext4 ]; then
-    RESERVED=$(tune2fs -l rootfs/rootfs.ext4 2>/dev/null | grep "Reserved block count" | awk '{print $NF}')
-    [ "${RESERVED}" = "61190791" ] && echo "  PASS (${RESERVED} blocks)" || echo "  FAIL: got ${RESERVED} expected 61190791"
+    read -r RESERVED BLOCKS < <(tune2fs -l rootfs/rootfs.ext4 2>/dev/null | awk '/^Reserved block count:/{r=$4} /^Block count:/{b=$3} END{print r, b}')
+    if [ -n "${BLOCKS:-}" ] && [ "${BLOCKS:-0}" -gt 0 ]; then
+        RATIO=$(( RESERVED * 100 / BLOCKS ))
+        [ "${RATIO}" = "50" ] && echo "  PASS (${RATIO}%)" || echo "  FAIL: got ${RATIO}% expected 50%"
+    else
+        echo "  FAIL: could not read ext4 superblock"
+    fi
 else
     echo "  SKIP: rootfs not available"
 fi
@@ -58,11 +63,35 @@ echo "[TEST 7] TAP device fc-tap0 exists..."
 ip link show fc-tap0 &>/dev/null && echo "  PASS" || echo "  SKIP (not running or not configured yet)"
 
 # Test 8: VM connectivity (runtime test only, requires running VM)
-echo "[TEST 8] VM WebSocket reachable (requires running VM)..."
+echo "[TEST 8] VM Control API healthy (requires running VM)..."
 if curl -s --connect-timeout 2 http://192.0.2.2:2025/status 2>/dev/null | grep -q "healthy"; then
     echo "  PASS"
 elif [ "${SKIP_VM_TESTS:-0}" = "1" ]; then
     echo "  SKIP (VM not running, set SKIP_VM_TESTS=0 to test)"
+else
+    echo "  SKIP (VM not running)"
+fi
+
+# Test 9: WebSocket PTY shell responds (runtime test only)
+echo "[TEST 9] WebSocket PTY shell executes a command (requires running VM)..."
+if curl -s --connect-timeout 2 http://192.0.2.2:2025/status 2>/dev/null | grep -q "healthy"; then
+    PROBE="./process_api/target/release/examples/ws_probe"
+    if [ -x "${PROBE}" ]; then
+        if "${PROBE}" ws://192.0.2.2:2024 > /tmp/fusebox-probe.log 2>&1; then
+            echo "  PASS (full probe suite)"
+        else
+            echo "  FAIL (probe suite; see /tmp/fusebox-probe.log)"
+        fi
+    elif command -v websocat >/dev/null; then
+        OUT=$(printf 'echo fusebox_smoke_42\n' | timeout 5 websocat ws://192.0.2.2:2024 2>/dev/null || true)
+        if echo "${OUT}" | grep -q "fusebox_smoke_42"; then
+            echo "  PASS"
+        else
+            echo "  FAIL: no command output from shell"
+        fi
+    else
+        echo "  SKIP (neither ws_probe nor websocat available)"
+    fi
 else
     echo "  SKIP (VM not running)"
 fi

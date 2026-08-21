@@ -27,8 +27,12 @@ Host                              Firecracker VM
 | Kernel boot (6.18.5, CONFIG_PCI=y, ACPI) | ✅ | DSDT loads, IOAPIC routing, `pci=off` at boot |
 | Block devices (4 virtio-mmio drives) | ✅ | root + 3 squashfs |
 | Guest network 192.0.2.2/24 | ✅ | Static IP via ioctl, ping verified |
-| WebSocket shell `ws://192.0.2.2:2024` | ✅ | Line-based JSON stream, bash + busybox |
+| WebSocket shell `ws://192.0.2.2:2024` | ✅ | **PTY-backed interactive bash** — prompt, arrow keys, tab completion, Ctrl-C |
 | Control API `http://192.0.2.2:2025` | ✅ | Bound and serving |
+
+The PTY shell is verified end-to-end by the automated probe suite
+(`process_api/examples/ws_probe.rs`) against a running process_api; boot it
+and run the suite against `ws://192.0.2.2:2024`.
 
 Not yet verified: Envoy MITM, snapstart, skills mounts, rclone.
 
@@ -74,7 +78,8 @@ whoami    # → root
 ## Guest Environment
 
 - **PID 1**: `process_api` — Rust supervisor, serves WebSocket + Control API
-- **Shell**: `/bin/bash` (static build, no PS1 prompt — use line-based input)
+- **Shell**: `/bin/bash` (static) on a real PTY — PS1 prompt, readline history
+  and tab completion, Ctrl-C signal keys, `SIGWINCH` on resize
 - **Coreutils**: busybox symlinks in `/bin/` — `ls`, `cat`, `mkdir`, `rm`, `cp`, `ps`, `id`, `whoami`, etc.
 - **User**: root (uid 0)
 - **Network**: eth0 with static IP 192.0.2.2/24
@@ -97,15 +102,24 @@ whoami    # → root
 
 ## WebSocket Protocol
 
-Messages are JSON objects with a `stream` field:
+Each connection gets an interactive PTY-backed bash. Send raw bytes (keyboard
+input: commands, arrows, Tab, Ctrl-C) — a Text frame that parses as a control
+object is special:
 
 ```json
-{"stream":"stdout","text":"ls output line"}
-{"stream":"stderr","text":"error message"}
+{"type":"resize","cols":120,"rows":40}
+{"type":"ping"}
+```
+
+Output arrives chunk-by-chunk as JSON with a `stream` field (`stderr` merges
+into `stdout`, like a real terminal):
+
+```json
+{"stream":"stdout","text":"ls output\r\n"}
 {"event":"exit","code":0}
 ```
 
-Type commands as plain text. Each command must end with `\n`.
+See `docs/websocket.md` for the full protocol and session lifecycle.
 
 ## Debugging
 

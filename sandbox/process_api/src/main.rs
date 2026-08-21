@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
-use std::os::unix::io::AsRawFd;
+use std::os::unix::io::{AsRawFd, FromRawFd};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -158,7 +158,8 @@ use hyper::service::service_fn;
 use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use std::io::Read;
+use std::os::unix::process::ExitStatusExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::process::Command;
 use tokio::sync::Mutex;
@@ -188,8 +189,11 @@ struct Args {
     #[arg(long)]
     block_local_connections: bool,
 
-    #[arg(long, default_value = "300")]
-    default_timeout_secs: u64,
+    /// Kill an interactive shell session after this many seconds of session
+    /// lifetime. 0 (the default) disables the timeout — an interactive shell
+    /// should not be reaped while idle.
+    #[arg(long, default_value = "0")]
+    session_timeout_secs: u64,
 }
 
 // Global runtime state tracking active tool executions
@@ -322,7 +326,7 @@ fn main() -> Result<()> {
                 kmsg(&format!("tokio build error: {e}"));
                 Err(anyhow::anyhow!("tokio build error: {e}"))
             }
-            Err(panic) => {
+            Err(_panic) => {
                 kmsg("tokio build panicked (signal init failed), falling back to time-only runtime");
                 tokio::runtime::Builder::new_current_thread()
                     .enable_time()
@@ -365,11 +369,19 @@ async fn main_async() -> Result<()> {
     // in this microVM, and Rust's stdio layer panics on those fds.
     init_logging();
 
+    let args = Args::parse();
+
     // Configure guest network interface (eth0) with static IP.
     // The host-side TAP is at 192.0.2.1/24; guest gets 192.0.2.2/24.
-    setup_guest_network("eth0", "192.0.2.2", "255.255.255.0");
-    let args = Args::parse();
-    
+    //
+    // Only when actually acting as the guest init (PID 1 or --firecracker-init):
+    // on a developer host this would try to re-IP a real interface.
+    if std::process::id() == 1 || args.firecracker_init {
+        setup_guest_network("eth0", "192.0.2.2", "255.255.255.0");
+    } else {
+        kmsg("process_api: not guest init; skipping guest network configuration");
+    }
+
     let state = Arc::new(Mutex::new(SandboxState {
         args: args.clone(),
         active_tasks: HashMap::new(),
@@ -567,7 +579,175 @@ async fn run_oom_guard(state: &Arc<Mutex<SandboxState>>) {
     }
 }
 
+// ============================ PTY interactive shell =========================
+
+/// Open a pseudo-terminal pair at `cols`x`rows`.
+///
+/// Returns `(master_read, master_write, slave_in, slave_out, slave_err,
+/// master_ctl_fd)`. The three slave handles exist because each of the child's
+/// stdio streams consumes one owned `File`. `master_ctl_fd` is a plain dup of
+/// the master kept solely for ioctls (TIOCSWINSZ) — close it with libc::close.
+#[allow(clippy::type_complexity)]
+fn open_pty(
+    cols: u16,
+    rows: u16,
+) -> std::io::Result<(fs::File, fs::File, fs::File, fs::File, fs::File, i32)> {
+    unsafe {
+        let mut master: libc::c_int = -1;
+        let mut slave: libc::c_int = -1;
+        let win = libc::winsize {
+            ws_col: cols,
+            ws_row: rows,
+            ws_xpixel: 0,
+            ws_ypixel: 0,
+        };
+        if libc::openpty(&mut master, &mut slave, std::ptr::null_mut(), std::ptr::null(), &win) != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        let ctl_fd = libc::fcntl(master, libc::F_DUPFD_CLOEXEC, 0);
+        if ctl_fd < 0 {
+            let e = std::io::Error::last_os_error();
+            libc::close(master);
+            libc::close(slave);
+            return Err(e);
+        }
+        let master_read = fs::File::from_raw_fd(master);
+        let master_write = master_read.try_clone()?;
+        let slave_file = fs::File::from_raw_fd(slave);
+        let slave_out = slave_file.try_clone()?;
+        let slave_err = slave_file.try_clone()?;
+        Ok((master_read, master_write, slave_file, slave_out, slave_err, ctl_fd))
+    }
+}
+
+/// Spawn an interactive `/bin/bash` with all three stdio streams attached to
+/// pty slave file descriptors.
+///
+/// The `pre_exec` hook makes the child a session leader (`setsid`) and hands
+/// it the pty slave (already its fd 0) as controlling terminal (`TIOCSCTTY`).
+/// Without those two calls bash degrades: readline refuses to start, Ctrl-C
+/// never becomes SIGINT, and job control prints "cannot set terminal process
+/// group" warnings. With them the kernel line discipline delivers signals and
+/// echoes input exactly like a real terminal.
+fn spawn_interactive_shell(
+    stdin_f: fs::File,
+    stdout_f: fs::File,
+    stderr_f: fs::File,
+) -> std::io::Result<tokio::process::Child> {
+    use std::process::Stdio;
+
+    let mut cmd = Command::new("/bin/bash");
+    cmd.stdin(Stdio::from(stdin_f))
+        .stdout(Stdio::from(stdout_f))
+        .stderr(Stdio::from(stderr_f));
+    cmd.env("TERM", "xterm-256color")
+        .env("PATH", "/bin:/usr/bin")
+        .env("HOME", "/root")
+        .env("USER", "root")
+        .env("LOGNAME", "root")
+        .env("PS1", "\\u@fusebox:\\w\\$ ")
+        .env("HISTFILE", "/dev/null")
+        // Don't inherit shell-integration hooks from whoever started the
+        // supervisor: they would execute inside every guest session.
+        .env_remove("PROMPT_COMMAND")
+        .env_remove("BASH_ENV")
+        .env_remove("ENV");
+
+    unsafe {
+        cmd.pre_exec(|| {
+            if libc::setsid() == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            // fd 0 is the pty slave at this point (stdio already dup2-ed).
+            if libc::ioctl(0, libc::TIOCSCTTY, 0 as libc::c_ulong) == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    cmd.spawn()
+}
+
+/// Incrementally decode pty output into strings, carrying incomplete UTF-8
+/// multi-byte tails across reads instead of emitting mojibake at chunk
+/// boundaries (a CJK char pasted into the shell can split mid-sequence).
+fn decode_utf8_incremental(carry: &mut Vec<u8>, chunk: &[u8]) -> String {
+    carry.extend_from_slice(chunk);
+    let mut cursor = 0usize;
+    let mut out = String::new();
+    while cursor < carry.len() {
+        match std::str::from_utf8(&carry[cursor..]) {
+            Ok(s) => {
+                out.push_str(s);
+                cursor = carry.len();
+            }
+            Err(e) => {
+                let valid_end = cursor + e.valid_up_to();
+                out.push_str(&String::from_utf8_lossy(&carry[cursor..valid_end]));
+                cursor = valid_end;
+                match e.error_len() {
+                    Some(bad_len) => {
+                        out.push('\u{FFFD}');
+                        cursor += bad_len;
+                    }
+                    // Incomplete trailing sequence: keep for the next read.
+                    None => break,
+                }
+            }
+        }
+    }
+    carry.drain(..cursor);
+    out
+}
+
+/// Apply a new window size to the pty. The kernel raises SIGWINCH in the
+/// foreground process group automatically, so running programs (vim, less...)
+/// repaint without extra signalling from us.
+fn pty_resize(master_fd: i32, cols: u16, rows: u16) -> bool {
+    let win = libc::winsize {
+        ws_col: cols,
+        ws_row: rows,
+        ws_xpixel: 0,
+        ws_ypixel: 0,
+    };
+    unsafe { libc::ioctl(master_fd, libc::TIOCSWINSZ, &win) == 0 }
+}
+
+enum ControlFrame {
+    Resize(u16, u16),
+    Ping,
+}
+
+/// Recognize control frames among incoming Text messages. Everything that is
+/// not a recognized control object falls through (`None`) and is treated as
+/// verbatim shell input.
+fn parse_control_frame(text: &str) -> Option<ControlFrame> {
+    let v: serde_json::Value = serde_json::from_str(text).ok()?;
+    let obj = v.as_object()?;
+    match obj.get("type")?.as_str()? {
+        "resize" => {
+            let cols = obj.get("cols")?.as_u64()? as u16;
+            let rows = obj.get("rows")?.as_u64()? as u16;
+            if cols == 0 || rows == 0 {
+                return None;
+            }
+            Some(ControlFrame::Resize(cols, rows))
+        }
+        "ping" => Some(ControlFrame::Ping),
+        _ => None,
+    }
+}
+
 /// WebSocket Interactive Multiplexer (Port 2024 Engine)
+///
+/// Each connection gets its own PTY-backed interactive bash session:
+/// - Client Text/Binary frames are written **verbatim** to the pty master
+///   (arrow keys, tab, Ctrl-C … reach the line discipline untouched), except
+///   for JSON control frames: `{"type":"resize","cols":C,"rows":R}` and
+///   `{"type":"ping"}`.
+/// - Output chunks are streamed back as properly escaped JSON:
+///   `{"stream":"stdout","text":"…"}` (stderr merges into the pty, like a
+///   real terminal), followed by `{"event":"exit","code":N}`.
 async fn handle_ws_routing(raw_stream: TcpStream, state: Arc<Mutex<SandboxState>>) {
     let ws_stream = match accept_async(raw_stream).await {
         Ok(ws) => ws,
@@ -579,26 +759,40 @@ async fn handle_ws_routing(raw_stream: TcpStream, state: Arc<Mutex<SandboxState>
 
     info!("Established execution transport connection layer.");
     let (mut ws_writer, mut ws_reader) = ws_stream.split();
-    
+
     // Allocate internal task identity metrics
     let task_uuid = Uuid::new_v4();
     let mem_limit = state.lock().await.args.memory_limit_bytes;
 
-    // Spawn execution subprocess wrapper
-    let mut sub_process = match Command::new("/bin/bash")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn() {
-            Ok(child) => child,
-            Err(e) => {
-                let _ = ws_writer.send(Message::Text(format!("{{\"error\":\"Process initialization collapse: {}\"}}", e).into())).await;
-                return;
-            }
-        };
+    // ---- Allocate pty and spawn the interactive shell --------------------
+    let (master_r, master_w, s_in, s_out, s_err, master_ctl_fd) = match open_pty(80, 24) {
+        Ok(x) => x,
+        Err(e) => {
+            error!("PTY allocation failure: {}", e);
+            let _ = ws_writer
+                .send(Message::Text(
+                    format!("{{\"error\":\"PTY allocation failed: {e}\"}}").into(),
+                ))
+                .await;
+            return;
+        }
+    };
+
+    let mut sub_process = match spawn_interactive_shell(s_in, s_out, s_err) {
+        Ok(child) => child,
+        Err(e) => {
+            unsafe { libc::close(master_ctl_fd) };
+            let _ = ws_writer
+                .send(Message::Text(
+                    format!("{{\"error\":\"Process initialization collapse: {e}\"}}").into(),
+                ))
+                .await;
+            return;
+        }
+    };
 
     let pid = sub_process.id().unwrap_or(0);
-    
+
     // Lock process into isolated task profile tracking arrays
     {
         let mut lock = state.lock().await;
@@ -611,83 +805,190 @@ async fn handle_ws_routing(raw_stream: TcpStream, state: Arc<Mutex<SandboxState>
         }
     }
 
-    let mut proc_stdin = sub_process.stdin.take().expect("Failed to grab subprocess standard input write lock");
-    let proc_stdout = sub_process.stdout.take().expect("Failed to grab subprocess standard output read lock");
-    let proc_stderr = sub_process.stderr.take().expect("Failed to grab subprocess structural error read lock");
+    info!(
+        "Interactive shell session [{}] started on pty (pid {})",
+        task_uuid, pid
+    );
 
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<Message>(100);
+    // Channels bridging the blocking relay threads and this async loop.
+    let (out_tx, mut out_rx) = tokio::sync::mpsc::channel::<Message>(256);
+    let (in_tx, mut in_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(256);
 
-    // Stdout Reader Thread
-    let stdout_tx = tx.clone();
-    tokio::spawn(async move {
-        let mut reader = BufReader::new(proc_stdout).lines();
-        while let Ok(Some(line)) = reader.next_line().await {
-            let payload = format!("{{\"stream\":\"stdout\",\"text\":\"{}\"}}\n", line.replace('"', "\\\""));
-            if stdout_tx.send(Message::Text(payload.into())).await.is_err() { break; }
+    // Master -> WebSocket relay. The pty is read on a dedicated blocking
+    // thread: reads end with EIO once the shell exits and every slave fd is
+    // closed, which is our reliable end-of-session signal from this side.
+    let stdout_tx = out_tx.clone();
+    std::thread::spawn(move || {
+        let mut master = master_r;
+        let mut carry: Vec<u8> = Vec::new();
+        let mut buf = [0u8; 4096];
+        loop {
+            match master.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    let text = decode_utf8_incremental(&mut carry, &buf[..n]);
+                    if text.is_empty() {
+                        continue;
+                    }
+                    let payload =
+                        serde_json::json!({"stream": "stdout", "text": text}).to_string();
+                    if stdout_tx
+                        .blocking_send(Message::Text(payload.into()))
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(_) => break,
+            }
+        }
+    });
+    drop(out_tx);
+
+    // WebSocket -> Master relay (dedicated blocking writer thread).
+    std::thread::spawn(move || {
+        let mut master = master_w;
+        while let Some(bytes) = in_rx.blocking_recv() {
+            if master.write_all(&bytes).is_err() {
+                break;
+            }
+            let _ = master.flush();
         }
     });
 
-    // Stderr Reader Thread
-    let stderr_tx = tx.clone();
-    tokio::spawn(async move {
-        let mut reader = BufReader::new(proc_stderr).lines();
-        while let Ok(Some(line)) = reader.next_line().await {
-            let payload = format!("{{\"stream\":\"stderr\",\"text\":\"{}\"}}\n", line.replace('"', "\\\""));
-            if stderr_tx.send(Message::Text(payload.into())).await.is_err() { break; }
+    // Optional session lifetime timeout — disabled by default because killing
+    // an idle interactive shell after N seconds makes the sandbox feel broken.
+    let timeout_secs = state.lock().await.args.session_timeout_secs;
+    let session_timeout = async move {
+        if timeout_secs == 0 {
+            std::future::pending::<()>().await
+        } else {
+            tokio::time::sleep(Duration::from_secs(timeout_secs)).await
         }
-    });
+    };
+    tokio::pin!(session_timeout);
 
-    // Inbound/Outbound Multiplexing Loop with Timeout
-    let timeout = tokio::time::sleep(Duration::from_secs(state.lock().await.args.default_timeout_secs));
-    tokio::pin!(timeout);
+    let mut exit_code: Option<i32> = None;
+    let mut client_gone = false;
 
     loop {
         tokio::select! {
             incoming_msg = ws_reader.next() => {
                 match incoming_msg {
                     Some(Ok(Message::Text(text))) => {
-                        if proc_stdin.write_all(text.as_bytes()).await.is_err() { break; }
-                        if proc_stdin.flush().await.is_err() { break; }
-                    },
+                        match parse_control_frame(&text) {
+                            Some(ControlFrame::Resize(cols, rows)) => {
+                                if !pty_resize(master_ctl_fd, cols, rows) {
+                                    warn!(
+                                        "TIOCSWINSZ failed for session [{}]: {}",
+                                        task_uuid,
+                                        std::io::Error::last_os_error()
+                                    );
+                                }
+                            }
+                            Some(ControlFrame::Ping) => {
+                                let _ = ws_writer
+                                    .send(Message::Text(r#"{"event":"pong"}"#.into()))
+                                    .await;
+                            }
+                            None => {
+                                if in_tx.send(text.into_bytes()).await.is_err() {
+                                    client_gone = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
                     Some(Ok(Message::Binary(bin))) => {
-                        if proc_stdin.write_all(&bin).await.is_err() { break; }
-                        if proc_stdin.flush().await.is_err() { break; }
-                    },
-                    _ => break,
+                        if in_tx.send(bin.to_vec()).await.is_err() {
+                            client_gone = true;
+                            break;
+                        }
+                    }
+                    Some(Ok(_)) => {}
+                    _ => {
+                        client_gone = true;
+                        break;
+                    }
                 }
             }
-            Some(msg) = rx.recv() => {
-                if ws_writer.send(msg).await.is_err() { break; }
+            Some(msg) = out_rx.recv() => {
+                if ws_writer.send(msg).await.is_err() {
+                    client_gone = true;
+                    break;
+                }
             }
             status = sub_process.wait() => {
                 match status {
-                    Ok(exit_code) => info!("Subprocess execution sequence [{}] terminated with system code: {}", task_uuid, exit_code),
+                    Ok(st) => {
+                        exit_code = Some(
+                            st.code()
+                                .unwrap_or_else(|| st.signal().map(|s| -(s as i32)).unwrap_or(-1)),
+                        );
+                        info!("Shell session [{}] terminated with system code: {}", task_uuid, exit_code.unwrap_or(-1));
+                    }
                     Err(e) => error!("Subprocess interface returned error runtime tracking codes: {}", e),
                 }
                 break;
             }
-            _ = &mut timeout => {
-                info!("Tool call timed out, sending SIGTERM");
-                let _ = nix::sys::signal::kill(
-                    nix::unistd::Pid::from_raw(pid as i32),
-                    nix::sys::signal::Signal::SIGTERM,
-                );
+            _ = &mut session_timeout => {
+                info!("Session [{}] timed out, sending SIGHUP", task_uuid);
+                if pid > 0 {
+                    let _ = nix::sys::signal::killpg(
+                        nix::unistd::Pid::from_raw(pid as i32),
+                        nix::sys::signal::Signal::SIGHUP,
+                    );
+                }
                 break;
             }
         }
     }
 
+    // If the client vanished (or the session timed out) hang up the shell
+    // like a dropped modem carrier: SIGHUP to the whole session group, then a
+    // hard SIGKILL fallback if it lingers.
+    if exit_code.is_none() {
+        if pid > 0 && client_gone {
+            let _ = nix::sys::signal::killpg(
+                nix::unistd::Pid::from_raw(pid as i32),
+                nix::sys::signal::Signal::SIGHUP,
+            );
+        }
+        match tokio::time::timeout(Duration::from_millis(1500), sub_process.wait()).await {
+            Ok(Ok(st)) => {
+                exit_code = Some(
+                    st.code()
+                        .unwrap_or_else(|| st.signal().map(|s| -(s as i32)).unwrap_or(-1)),
+                );
+            }
+            _ => {
+                if pid > 0 {
+                    let _ = nix::sys::signal::killpg(
+                        nix::unistd::Pid::from_raw(pid as i32),
+                        nix::sys::signal::Signal::SIGKILL,
+                    );
+                }
+                let _ = sub_process.wait().await;
+            }
+        }
+    }
+
+    // Send exit code to WebSocket client before closing
+    let _ = ws_writer
+        .send(Message::Text(
+            format!("{{\"event\":\"exit\",\"code\":{}}}", exit_code.unwrap_or(-1)).into(),
+        ))
+        .await;
+
     // Unregister execution metrics from tracking tables
-    let mut lock = state.lock().await;
-    lock.active_tasks.remove(&task_uuid);
+    {
+        let mut lock = state.lock().await;
+        lock.active_tasks.remove(&task_uuid);
+    }
 
     // Clear the active cgroup configuration folder from system trees
     let _ = fs::remove_dir(format!("/sys/fs/cgroup/memory/process_api/{}", task_uuid));
 
-    // Send exit code to WebSocket client before closing
-    let exit_msg = match sub_process.wait().await {
-        Ok(status) => format!("{{\"event\":\"exit\",\"code\":{}}}", status.code().unwrap_or(-1)),
-        Err(_) => r#"{"event":"exit","code":-1}"#.to_string(),
-    };
-    let _ = ws_writer.send(Message::Text(exit_msg.into())).await;
+    unsafe { libc::close(master_ctl_fd) };
 }
