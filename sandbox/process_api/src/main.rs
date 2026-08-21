@@ -285,6 +285,30 @@ fn main() -> Result<()> {
         nix::mount::MsFlags::empty(), None::<&str>,
     );
 
+    // Mount devpts so openpty() can resolve /dev/pts/<n> slave nodes.
+    // The fs is compiled into this kernel automatically (UNIX98_PTYS pulls
+    // it in), but nothing mounts it during boot — without it, even opening
+    // /dev/ptmx fails (ptmx_open -> devpts_acquire requires a devpts sb).
+    let _ = std::fs::create_dir_all("/dev/pts");
+    match nix::mount::mount(
+        Some("devpts"), "/dev/pts", Some("devpts"),
+        nix::mount::MsFlags::empty(), Some("gid=5,mode=620,ptmxmode=0666"),
+    ) {
+        Ok(()) => kmsg("process_api: devpts mounted at /dev/pts (gid=5,mode=620,ptmxmode=0666)"),
+        Err(e) => {
+            kmsg(&format!(
+                "process_api: devpts mount with options failed: {e}; retrying plain"
+            ));
+            match nix::mount::mount(
+                Some("devpts"), "/dev/pts", Some("devpts"),
+                nix::mount::MsFlags::empty(), None::<&str>,
+            ) {
+                Ok(()) => kmsg("process_api: devpts mounted at /dev/pts (default options)"),
+                Err(e2) => kmsg(&format!("process_api: devpts mount failed again: {e2}")),
+            }
+        }
+    }
+
     // Install panic hook that writes to /dev/kmsg BEFORE any tokio code.
     std::panic::set_hook(Box::new(|info| {
         let msg = {
@@ -587,23 +611,54 @@ async fn run_oom_guard(state: &Arc<Mutex<SandboxState>>) {
 /// master_ctl_fd)`. The three slave handles exist because each of the child's
 /// stdio streams consumes one owned `File`. `master_ctl_fd` is a plain dup of
 /// the master kept solely for ioctls (TIOCSWINSZ) — close it with libc::close.
+///
+/// Implemented with explicit opens instead of libc::openpty so we can fall
+/// back between master paths: modern kernels refuse /dev/ptmx unless a devpts
+/// instance is mounted (ptmx_open -> devpts_acquire), and some setups only
+/// expose the master as /dev/pts/ptmx inside the devpts root.
 #[allow(clippy::type_complexity)]
 fn open_pty(
     cols: u16,
     rows: u16,
 ) -> std::io::Result<(fs::File, fs::File, fs::File, fs::File, fs::File, i32)> {
-    unsafe {
-        let mut master: libc::c_int = -1;
-        let mut slave: libc::c_int = -1;
-        let win = libc::winsize {
-            ws_col: cols,
-            ws_row: rows,
-            ws_xpixel: 0,
-            ws_ypixel: 0,
-        };
-        if libc::openpty(&mut master, &mut slave, std::ptr::null_mut(), std::ptr::null(), &win) != 0 {
-            return Err(std::io::Error::last_os_error());
+    const OPEN_FLAGS: libc::c_int = libc::O_RDWR | libc::O_NOCTTY;
+    // _IOR('T', 0x30, uint) / _IOW('T', 0x31, int): slave index + lock toggle.
+    const TIOCGPTN: libc::c_int = 0x8004_5430u32 as libc::c_int;
+    const TIOCSPTLCK: libc::c_int = 0x4004_5431u32 as libc::c_int;
+
+    let mut master: libc::c_int = -1;
+    for path in ["/dev/ptmx", "/dev/pts/ptmx"] {
+        let cpath = std::ffi::CString::new(path).unwrap();
+        master = unsafe { libc::open(cpath.as_ptr(), OPEN_FLAGS) };
+        if master >= 0 {
+            break;
         }
+    }
+    if master < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+
+    unsafe {
+        // Clear the slave lock and ask the kernel for the slave's pts index.
+        let unlocked: libc::c_int = 0;
+        let mut idx: libc::c_int = -1;
+        if libc::ioctl(master, TIOCSPTLCK, &unlocked) != 0
+            || libc::ioctl(master, TIOCGPTN, &mut idx) != 0
+            || idx < 0
+        {
+            let e = std::io::Error::last_os_error();
+            libc::close(master);
+            return Err(e);
+        }
+
+        let slave_path = std::ffi::CString::new(format!("/dev/pts/{idx}")).unwrap();
+        let slave = libc::open(slave_path.as_ptr(), OPEN_FLAGS);
+        if slave < 0 {
+            let e = std::io::Error::last_os_error();
+            libc::close(master);
+            return Err(e);
+        }
+
         let ctl_fd = libc::fcntl(master, libc::F_DUPFD_CLOEXEC, 0);
         if ctl_fd < 0 {
             let e = std::io::Error::last_os_error();
@@ -611,6 +666,16 @@ fn open_pty(
             libc::close(slave);
             return Err(e);
         }
+
+        // Apply the window size before the shell reads its first prompt.
+        let win = libc::winsize {
+            ws_col: cols,
+            ws_row: rows,
+            ws_xpixel: 0,
+            ws_ypixel: 0,
+        };
+        let _ = libc::ioctl(slave, libc::TIOCSWINSZ, &win);
+
         let master_read = fs::File::from_raw_fd(master);
         let master_write = master_read.try_clone()?;
         let slave_file = fs::File::from_raw_fd(slave);
@@ -768,6 +833,26 @@ async fn handle_ws_routing(raw_stream: TcpStream, state: Arc<Mutex<SandboxState>
     let (master_r, master_w, s_in, s_out, s_err, master_ctl_fd) = match open_pty(80, 24) {
         Ok(x) => x,
         Err(e) => {
+            // Rich diagnostics: this failed in-guest with ENOENT once already.
+            let ptmx_exists = Path::new("/dev/ptmx").exists();
+            let dev_entries: Vec<String> = fs::read_dir("/dev")
+                .map(|rd| {
+                    rd.flatten()
+                        .filter_map(|en| en.file_name().into_string().ok())
+                        .take(24)
+                        .collect()
+                })
+                .unwrap_or_default();
+            kmsg(&format!(
+                "process_api PTY DIAG: ptmx_exists={ptmx_exists} dev={dev_entries:?} mounts={:?}",
+                fs::read_to_string("/proc/mounts")
+                    .map(|m| m
+                        .lines()
+                        .filter(|l| l.contains("dev") || l.contains("pts"))
+                        .map(|l| l.to_string())
+                        .collect::<Vec<_>>())
+                    .unwrap_or_default()
+            ));
             error!("PTY allocation failure: {}", e);
             let _ = ws_writer
                 .send(Message::Text(

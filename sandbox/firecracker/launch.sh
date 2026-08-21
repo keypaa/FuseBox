@@ -19,6 +19,16 @@ fi
 # Remove stale socket
 rm -f "${FC_SOCKET}"
 
+# Refuse to run beside stale instances: an orphaned Firecracker keeps
+# fc-tap0's TUN fd busy ("Resource busy" on attach) and holds the socket.
+if pgrep -x firecracker >/dev/null 2>&1; then
+    echo "==> Killing stale Firecracker instance(s):"
+    pgrep -ax firecracker || true
+    pkill -x firecracker || true
+    sleep 1
+    pkill -9 -x firecracker 2>/dev/null || true
+fi
+
 echo "==> Launching Firecracker microVM..."
 # Line-buffer stdout (guest serial) to a file so output is visible in real
 # time; redirect stdin from /dev/null. Script already runs as root via sudo.
@@ -33,7 +43,7 @@ done
 
 echo "==> Configuring VM via API..."
 # Set boot source
-sudo curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/boot-source' \
+curl --fail-with-body --silent --show-error --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/boot-source' \
   -H 'Content-Type: application/json' \
   -d @- << EOF
 {
@@ -44,36 +54,36 @@ sudo curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/boot-source' \
 EOF
 
 # Set machine config
-sudo curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/machine-config' \
+curl --fail-with-body --silent --show-error --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/machine-config' \
   -H 'Content-Type: application/json' \
   -d '{"vcpu_count":1,"mem_size_mib":2048,"smt":false,"track_dirty_pages":true}'
 
 # Attach drives
-sudo curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/drives/rootfs' \
+curl --fail-with-body --silent --show-error --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/drives/rootfs' \
   -H 'Content-Type: application/json' \
   -d "{\"drive_id\":\"rootfs\",\"path_on_host\":\"${SANDBOX_DIR}/rootfs/rootfs.ext4\",\"is_root_device\":true,\"is_read_only\":false}"
 
-sudo curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/drives/rclone' \
+curl --fail-with-body --silent --show-error --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/drives/rclone' \
   -H 'Content-Type: application/json' \
   -d "{\"drive_id\":\"rclone\",\"path_on_host\":\"${SANDBOX_DIR}/rclone/rclone-filestore.squashfs\",\"is_root_device\":false,\"is_read_only\":true}"
 
-sudo curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/drives/skills_public' \
+curl --fail-with-body --silent --show-error --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/drives/skills_public' \
   -H 'Content-Type: application/json' \
   -d "{\"drive_id\":\"skills_public\",\"path_on_host\":\"${SANDBOX_DIR}/skills/skills-public.squashfs\",\"is_root_device\":false,\"is_read_only\":true}"
 
-sudo curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/drives/skills_examples' \
+curl --fail-with-body --silent --show-error --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/drives/skills_examples' \
   -H 'Content-Type: application/json' \
   -d "{\"drive_id\":\"skills_examples\",\"path_on_host\":\"${SANDBOX_DIR}/skills/skills-examples.squashfs\",\"is_root_device\":false,\"is_read_only\":true}"
 
 # Attach network
-sudo curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/network-interfaces/eth0' \
+curl --fail-with-body --silent --show-error --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/network-interfaces/eth0' \
   -H 'Content-Type: application/json' \
   -d '{"iface_id":"eth0","guest_mac":"02:fc:00:00:00:01","host_dev_name":"fc-tap0"}'
 
 # Capture guest serial console to /tmp/fusebox-serial.log via stdout (above).
 
 echo "==> Starting VM..."
-sudo curl --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/actions' \
+curl --fail-with-body --silent --show-error --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/actions' \
   -H 'Content-Type: application/json' \
   -d '{"action_type":"InstanceStart"}'
 

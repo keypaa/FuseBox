@@ -112,6 +112,39 @@ impl Probe {
         ok
     }
 
+    /// Pump frames until some output **line** equals `line` exactly
+    /// (\r-stripped) or `secs` elapse — immune to CR/LF style differences.
+    async fn expect_line(&mut self, name: &str, line: &str, secs: u64) -> bool {
+        let has = |acc: &str| {
+            acc.split('\n').any(|l| l.trim_matches('\r') == line)
+        };
+        let deadline = Instant::now() + Duration::from_secs(secs);
+        while !has(&self.acc) {
+            if Instant::now() >= deadline || self.closed {
+                break;
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            match tokio::time::timeout(remaining, self.rx.next()).await {
+                Err(_) => break,
+                Ok(None) => {
+                    self.closed = true;
+                    break;
+                }
+                Ok(Some(Err(_))) => {
+                    self.closed = true;
+                    break;
+                }
+                Ok(Some(Ok(frame))) => self.absorb(frame),
+            }
+        }
+        let ok = has(&self.acc);
+        report(name, ok);
+        if !ok {
+            eprintln!("    accumulated tail: {:?}", tail(&self.acc));
+        }
+        ok
+    }
+
     fn absorb(&mut self, frame: Message) {
         match frame {
             Message::Text(t) => {
@@ -279,7 +312,7 @@ async fn main() {
         failures += 1;
     }
     p.send_line("ps | grep -c '[s]leep'").await;
-    if !p.expect("foreground sleep reaped after SIGINT", "\r0\r\n", 5).await {
+    if !p.expect_line("foreground sleep reaped after SIGINT", "0", 5).await {
         failures += 1;
     }
 
