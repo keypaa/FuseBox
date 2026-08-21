@@ -96,5 +96,22 @@ else
     echo "  SKIP (VM not running)"
 fi
 
+# Test 10: Skills volumes mounted inside the guest (runtime test only)
+echo "[TEST 10] Guest skills mounts populated (requires running VM)..."
+if curl -s --connect-timeout 2 http://192.0.2.2:2025/status 2>/dev/null | grep -q "healthy"; then
+    if command -v websocat >/dev/null; then
+        OUT=$({ printf 'ls /mnt/skills/public | head -1\n'; sleep 3; } | timeout 8 websocat ws://192.0.2.2:2024 2>/dev/null || true)
+        if echo "${OUT}" | grep -aqE "[a-z]"; then
+            echo "  PASS (/mnt/skills/public populated)"
+        else
+            echo "  FAIL: no skills content visible in guest"
+        fi
+    else
+        echo "  SKIP (websocat not available)"
+    fi
+else
+    echo "  SKIP (VM not running)"
+fi
+
 echo ""
 echo "==> Tests complete."

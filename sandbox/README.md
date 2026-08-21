@@ -34,7 +34,10 @@ The PTY shell is verified end-to-end by the automated probe suite
 (`process_api/examples/ws_probe.rs`) against a running process_api; boot it
 and run the suite against `ws://192.0.2.2:2024`.
 
-Not yet verified: Envoy MITM, snapstart, skills mounts, rclone.
+| Skills mounts | ✅ | `vdc → /mnt/skills/public`, `vdd → /mnt/skills/examples`, `vdb → /mnt/filestore` auto-mounted from `/mount_config.json` at boot |
+| rclone filestore volume | ✅ (stand-in) | Valid squashfs seeding the canonical layout; real rclone binary not bundled |
+
+Not yet verified: Envoy MITM, snapstart.
 
 ## Prerequisites
 
