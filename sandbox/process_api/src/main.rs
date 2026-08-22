@@ -987,6 +987,7 @@ async fn handle_ws_routing(raw_stream: TcpStream, state: Arc<Mutex<SandboxState>
                     format!("{{\"error\":\"PTY allocation failed: {e}\"}}").into(),
                 ))
                 .await;
+            let _ = ws_writer.close().await;
             return;
         }
     };
@@ -1000,6 +1001,7 @@ async fn handle_ws_routing(raw_stream: TcpStream, state: Arc<Mutex<SandboxState>
                     format!("{{\"error\":\"Process initialization collapse: {e}\"}}").into(),
                 ))
                 .await;
+            let _ = ws_writer.close().await;
             return;
         }
     };
@@ -1187,12 +1189,16 @@ async fn handle_ws_routing(raw_stream: TcpStream, state: Arc<Mutex<SandboxState>
         }
     }
 
-    // Send exit code to WebSocket client before closing
+    // Send exit code to WebSocket client, then complete the WebSocket close
+    // handshake. Dropping the sink without `close()` aborts the TCP stream —
+    // browser-grade clients report 1006 abnormal closure even though the
+    // exit frame was delivered.
     let _ = ws_writer
         .send(Message::Text(
             format!("{{\"event\":\"exit\",\"code\":{}}}", exit_code.unwrap_or(-1)).into(),
         ))
         .await;
+    let _ = ws_writer.close().await;
 
     // Unregister execution metrics from tracking tables
     {
