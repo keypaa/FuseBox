@@ -79,8 +79,17 @@ http://192.0.2.2:2025
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/status` | Health check |
-| POST | `/mount_root` | Inject session-specific mount config |
+| GET | `/status` | Health check + active session count |
+| GET | `/sessions` | Active shell sessions: `{"sessions":[{"id","pid"}]}` |
+| POST | `/mount_root` | Re-run `/mount_config.json` mounts (idempotent) |
+| GET | `/files/list?path=P` | JSON listing `{"entries":[{"name","size","is_dir"}]}` |
+| GET | `/files/download?path=P` | Raw file bytes as attachment (≤512 MiB) |
+| POST | `/files/upload?path=P` | Request body becomes the file's content (≤256 MiB) |
+
+The supervisor runs inside the guest, so the file plane exposes exactly the
+sandbox filesystem — that is the point. Paths must be absolute without `..`.
+All responses carry permissive CORS so browser clients (including `file://`)
+work from any origin.
 
 ## Session lifecycle
 

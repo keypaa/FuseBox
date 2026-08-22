@@ -17,8 +17,26 @@
          title="WebSocket endpoint of the sandbox supervisor">
   <button id="connect">Connect</button>
   <span id="status">disconnected</span>
+  <span id="sessions" class="chip" title="active shell sessions">–</span>
 </header>
-<main id="terminal"></main>
+<main>
+  <div id="terminal"></div>
+  <aside id="files">
+    <div class="files-head">
+      <span>files</span>
+      <button id="refresh" title="refresh listing">&#x21bb;</button>
+    </div>
+    <select id="filesdir" title="directory">
+      <option value="/mnt/user-data/outputs">outputs</option>
+      <option value="/mnt/user-data/uploads">uploads</option>
+      <option value="/mnt/user-data/tool_results">tool_results</option>
+    </select>
+    <ul id="filelist"><li class="empty">connect to browse</li></ul>
+    <label id="dropzone">drop files here or click to upload
+      <input id="upload" type="file" multiple>
+    </label>
+  </aside>
+</main>
 <footer>
   <span>firmware boundary: raw bytes &rarr; WS 2024; JSON stdout chunks + control frames &larr;</span>
   <span id="hint"></span>

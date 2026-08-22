@@ -58,8 +58,75 @@ button:hover { border-color: var(--accent); color: var(--accent); }
 
 #status { color: var(--muted); font-size: 13px; min-width: 180px; }
 
-main { flex: 1; padding: 6px 10px; min-height: 0; }
-main .xterm, main .xterm .xterm-viewport { height: 100%; }
+main { flex: 1; display: flex; min-height: 0; padding: 6px 10px; gap: 8px; }
+#terminal { flex: 1; min-width: 0; }
+#terminal .xterm, #terminal .xterm .xterm-viewport { height: 100%; }
+
+aside#files {
+  width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-left: 1px solid #1e242c;
+  padding-left: 10px;
+}
+.files-head { display: flex; justify-content: space-between; align-items: center; }
+.files-head span { color: var(--muted); text-transform: uppercase; font-size: 11px; letter-spacing: 1px; }
+.files-head button { padding: 2px 8px; font-size: 12px; }
+
+#filesdir {
+  background: #161c23;
+  color: var(--fg);
+  border: 1px solid #2a3441;
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 12px;
+}
+
+#filelist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  flex: 1;
+  border: 1px solid #1e242c;
+  border-radius: 6px;
+  background: #10151b;
+}
+#filelist li {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 8px;
+  font-family: monospace;
+  font-size: 12px;
+  border-bottom: 1px solid #161c23;
+}
+#filelist li.file { cursor: pointer; }
+#filelist li.file:hover { background: #1a222b; color: var(--accent); }
+#filelist li.empty { color: var(--muted); justify-content: center; }
+#filelist .fsize { color: var(--muted); }
+
+#dropzone {
+  border: 1px dashed #2a3441;
+  border-radius: 6px;
+  padding: 10px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+#dropzone.drag, #dropzone:hover { border-color: var(--accent); color: var(--accent); }
+#dropzone input { display: none; }
+
+.chip {
+  background: #1f2937;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  padding: 2px 10px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
 
 footer {
   display: flex;

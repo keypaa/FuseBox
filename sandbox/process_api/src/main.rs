@@ -632,19 +632,89 @@ fn execute_system_mounts() -> Result<()> {
     Ok(())
 }
 
-/// Control API Protocol layer (Port 2025)
+/// Control API Protocol layer (Port 2025).
+///
+/// Routes:
+/// - `GET  /status`                    health + active session count
+/// - `GET  /sessions`                  active shell sessions (id, pid)
+/// - `POST /mount_root`                re-run /mount_config.json mounts
+/// - `GET  /files/list?path=P`         JSON directory listing
+/// - `GET  /files/download?path=P`     raw file bytes (attachment)
+/// - `POST /files/upload?path=P`       body becomes the file's content
+///
+/// Every response carries permissive CORS so the console works from any
+/// origin, including `file://` (origin `null`). File paths must be absolute
+/// and may not contain `..` components — the supervisor runs inside the
+/// guest, so this surface exposes exactly the sandbox filesystem.
 async fn handle_control_request(
     req: Request<hyper::body::Incoming>,
     state: Arc<Mutex<SandboxState>>,
 ) -> Result<Response<Full<Bytes>>, hyper::Error> {
-    let route = req.uri().path();
-    match route {
-        "/status" => {
-            let lock = state.lock().await;
-            let body_str = format!("{{\"status\":\"healthy\",\"active_tasks\":{}}}", lock.active_tasks.len());
-            Ok(Response::new(Full::new(Bytes::from(body_str))))
+    use http_body_util::BodyExt;
+
+    const MAX_UPLOAD: u64 = 256 * 1024 * 1024;
+
+    // Echo the caller's Origin so both file:// ("null") and served origins
+    // work; fall back to * for non-browser clients.
+    let origin = req
+        .headers()
+        .get("Origin")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("*")
+        .to_string();
+
+    fn finalize(mut res: Response<Full<Bytes>>, origin: &str) -> Response<Full<Bytes>> {
+        if let Ok(v) = origin.parse() {
+            res.headers_mut().insert("Access-Control-Allow-Origin", v);
         }
-        "/mount_root" => {
+        res.headers_mut().insert(
+            "Access-Control-Allow-Headers",
+            "Content-Type".parse().unwrap(),
+        );
+        res.headers_mut().insert(
+            "Access-Control-Allow-Methods",
+            "GET, POST, OPTIONS".parse().unwrap(),
+        );
+        res
+    }
+
+    let json_response = |status: StatusCode, body: String| {
+        let mut res = Response::new(Full::new(Bytes::from(body)));
+        *res.status_mut() = status;
+        res.headers_mut()
+            .insert("Content-Type", "application/json".parse().unwrap());
+        finalize(res, &origin)
+    };
+
+    // CORS preflight for browser clients.
+    if req.method() == hyper::Method::OPTIONS {
+        return Ok(finalize(Response::new(Full::new(Bytes::new())), &origin));
+    }
+
+    let path = req.uri().path().to_string();
+    let query = parse_query(req.uri().query().unwrap_or(""));
+
+    match (req.method().as_str(), path.as_str()) {
+        ("GET", "/status") => {
+            let lock = state.lock().await;
+            Ok(json_response(
+                StatusCode::OK,
+                format!("{{\"status\":\"healthy\",\"active_tasks\":{}}}", lock.active_tasks.len()),
+            ))
+        }
+        ("GET", "/sessions") => {
+            let lock = state.lock().await;
+            let sessions: Vec<serde_json::Value> = lock
+                .active_tasks
+                .iter()
+                .map(|(id, pid)| serde_json::json!({"id": id.to_string(), "pid": pid}))
+                .collect();
+            Ok(json_response(
+                StatusCode::OK,
+                serde_json::json!({ "sessions": sessions }).to_string(),
+            ))
+        }
+        ("POST", "/mount_root") => {
             info!("Dynamic root filesystem remap sequence triggered via HTTP API");
             let response = match execute_system_mounts() {
                 Ok(_) => "{\"success\":true,\"message\":\"Mount layers reconfigured\"}",
@@ -653,14 +723,191 @@ async fn handle_control_request(
                     "{\"success\":false,\"error\":\"Mount operational collapse\"}"
                 }
             };
-            Ok(Response::new(Full::new(Bytes::from(response))))
+            Ok(json_response(StatusCode::OK, response.to_string()))
+        }
+        ("GET", "/files/list") => {
+            let Some(target) = query_get(&query, "path").and_then(check_guest_path) else {
+                return Ok(json_response(StatusCode::BAD_REQUEST,
+                    "{\"error\":\"missing or unsafe 'path'\"}".into()));
+            };
+            match fs::read_dir(&target) {
+                Ok(entries) => {
+                    let mut list: Vec<serde_json::Value> = Vec::new();
+                    for entry in entries.flatten() {
+                        let name = entry.file_name().to_string_lossy().into_owned();
+                        let (size, is_dir) = match entry.metadata() {
+                            Ok(m) => (m.len(), m.is_dir()),
+                            Err(_) => (0, false),
+                        };
+                        list.push(serde_json::json!({"name": name, "size": size, "is_dir": is_dir}));
+                    }
+                    list.sort_by(|a, b| {
+                        a["name"].as_str().unwrap_or("").cmp(b["name"].as_str().unwrap_or(""))
+                    });
+                    Ok(json_response(
+                        StatusCode::OK,
+                        serde_json::json!({
+                            "path": target.to_string_lossy(),
+                            "entries": list
+                        })
+                        .to_string(),
+                    ))
+                }
+                Err(e) => Ok(json_response(
+                    StatusCode::NOT_FOUND,
+                    serde_json::json!({"error": format!("cannot list {}: {e}", target.display())})
+                        .to_string(),
+                )),
+            }
+        }
+        ("GET", "/files/download") => {
+            let Some(target) = query_get(&query, "path").and_then(check_guest_path) else {
+                return Ok(json_response(StatusCode::BAD_REQUEST,
+                    "{\"error\":\"missing or unsafe 'path'\"}".into()));
+            };
+            match fs::metadata(&target) {
+                Ok(meta) if meta.is_file() && meta.len() <= 512 * 1024 * 1024 => {
+                    match fs::read(&target) {
+                        Ok(bytes) => {
+                            let filename = target
+                                .file_name()
+                                .map(|n| n.to_string_lossy().into_owned())
+                                .unwrap_or_else(|| "download.bin".into());
+                            let mut res = Response::new(Full::new(Bytes::from(bytes)));
+                            res.headers_mut().insert(
+                                "Content-Type",
+                                "application/octet-stream".parse().unwrap(),
+                            );
+                            res.headers_mut().insert(
+                                "Content-Disposition",
+                                format!("attachment; filename=\"{filename}\"").parse().unwrap(),
+                            );
+                            Ok(finalize(res, &origin))
+                        }
+                        Err(e) => Ok(json_response(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            serde_json::json!({"error": e.to_string()}).to_string(),
+                        )),
+                    }
+                }
+                Ok(meta) if meta.is_dir() => Ok(json_response(
+                    StatusCode::BAD_REQUEST,
+                    "{\"error\":\"path is a directory\"}".into(),
+                )),
+                Ok(meta) => Ok(json_response(
+                    StatusCode::BAD_REQUEST,
+                    format!(
+                        "{{\"error\":\"file too large ({} bytes > 512 MiB cap)\"}}",
+                        meta.len()
+                    )
+                    .into(),
+                )),
+                Err(e) => Ok(json_response(
+                    StatusCode::NOT_FOUND,
+                    serde_json::json!({"error": e.to_string()}).to_string(),
+                )),
+            }
+        }
+        ("POST", "/files/upload") => {
+            let Some(target) = query_get(&query, "path").and_then(check_guest_path) else {
+                return Ok(json_response(StatusCode::BAD_REQUEST,
+                    "{\"error\":\"missing or unsafe 'path'\"}".into()));
+            };
+            let limited = http_body_util::Limited::new(req.into_body(), MAX_UPLOAD as usize);
+            match limited.collect().await {
+                Ok(collected) => {
+                    let bytes = collected.to_bytes();
+                    if let Some(parent) = Path::new(&target).parent() {
+                        if let Err(e) = fs::create_dir_all(parent) {
+                            return Ok(json_response(
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                serde_json::json!({"error": e.to_string()}).to_string(),
+                            ));
+                        }
+                    }
+                    match fs::write(&target, &bytes) {
+                        Ok(()) => {
+                            info!(
+                                "File upload via control API: {} ({} bytes)",
+                                target.display(),
+                                bytes.len()
+                            );
+                            Ok(json_response(
+                                StatusCode::OK,
+                                serde_json::json!({
+                                    "success": true,
+                                    "path": target.to_string_lossy(),
+                                    "size": bytes.len()
+                                })
+                                .to_string(),
+                            ))
+                        }
+                        Err(e) => Ok(json_response(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            serde_json::json!({"error": e.to_string()}).to_string(),
+                        )),
+                    }
+                }
+                Err(_) => Ok(json_response(
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    format!("{{\"error\":\"upload exceeds {MAX_UPLOAD} byte cap\"}}").into(),
+                )),
+            }
         }
         _ => {
             let mut res = Response::new(Full::new(Bytes::from("Not Found")));
             *res.status_mut() = StatusCode::NOT_FOUND;
-            Ok(res)
+            Ok(finalize(res, &origin))
         }
     }
+}
+
+/// Percent-decode `%XX` escapes in a query component (`+` is left alone).
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 3 <= bytes.len() {
+            let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).ok()
+                .and_then(|h| u8::from_str_radix(h, 16).ok());
+            if let Some(b) = hex {
+                out.push(b);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Parse `a=1&b=2` into decoded key/value pairs.
+fn parse_query(q: &str) -> Vec<(String, String)> {
+    q.split('&')
+        .filter(|kv| !kv.is_empty())
+        .map(|kv| match kv.split_once('=') {
+            Some((k, v)) => (percent_decode(k), percent_decode(v)),
+            None => (percent_decode(kv), String::new()),
+        })
+        .collect()
+}
+
+fn query_get<'a>(pairs: &'a [(String, String)], key: &str) -> Option<&'a str> {
+    pairs
+        .iter()
+        .find(|(k, _)| k == key)
+        .map(|(_, v)| v.as_str())
+}
+
+/// Validate a guest file path from the API: absolute, no `..` components.
+fn check_guest_path(raw: &str) -> Option<std::path::PathBuf> {
+    if !raw.starts_with('/') || raw.split('/').any(|c| c == "..") {
+        warn!("Rejected unsafe API path: {raw:?}");
+        return None;
+    }
+    Some(std::path::PathBuf::from(raw))
 }
 
 /// Kernel Linux cgroup constraints injection routines

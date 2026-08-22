@@ -36,6 +36,8 @@ and run the suite against `ws://192.0.2.2:2024`.
 
 | Skills mounts | ✅ | `vdc → /mnt/skills/public`, `vdd → /mnt/skills/examples`, `vdb → /mnt/filestore` auto-mounted from `/mount_config.json` at boot |
 | rclone filestore volume | ✅ (stand-in) | Valid squashfs seeding the canonical layout; real rclone binary not bundled |
+| Control API file plane + sessions | ✅ | `/sessions`, `/files/list\|download\|upload` — shell↔API roundtrip covered by `console/test/smoke.mjs` |
+| Console (visual layer) | ✅ | `console/` zero-build xterm.js terminal with files panel; see root README |
 
 Not yet verified: Envoy MITM, snapstart.
 

@@ -16,6 +16,9 @@ const connectBtn = document.getElementById("connect");
 const statusEl = document.getElementById("status");
 const dotEl = document.getElementById("dot");
 const hintEl = document.getElementById("hint");
+const sessionsEl = document.getElementById("sessions");
+const filesdirEl = document.getElementById("filesdir");
+const filelistEl = document.getElementById("filelist");
 
 // Restore last endpoint (or ?ws= override) before anything else.
 const params = new URLSearchParams(location.search);
@@ -80,6 +83,8 @@ function connect() {
     // Align the pty with the browser terminal before the first prompt paints.
     sendResize();
     term.focus();
+    startSessionsPoller();
+    refreshFiles();
   };
 
   ws.onmessage = (ev) => {
@@ -113,11 +118,112 @@ function connect() {
     connected = false;
     connectBtn.textContent = "Connect";
     setStatus("off", "disconnected");
+    stopSessionsPoller();
+    filelistEl.innerHTML = '<li class="empty">connect to browse</li>';
   };
 
   ws.onerror = () => {
     setStatus("err", "websocket error — is the VM up?");
   };
+}
+
+// ============================ Control API plane =============================
+// The console derives the API base from the WS endpoint (2024 → 2025 pairing)
+// and uses it for the files panel and session count. Permissive CORS on the
+// firmware side makes this work from any origin, including file://.
+
+function apiBase() {
+  try {
+    const u = new URL(urlInput.value.trim());
+    return `${u.protocol === "wss:" ? "https" : "http"}//`.replace("//", "://") + u.host;
+  } catch {
+    return "";
+  }
+}
+
+let sessionsTimer = null;
+
+async function pollSessions() {
+  try {
+    const res = await fetch(`${apiBase()}/sessions`);
+    const data = await res.json();
+    const n = (data.sessions ?? []).length;
+    sessionsEl.textContent = n === 1 ? "1 session" : `${n} sessions`;
+  } catch {
+    sessionsEl.textContent = "–";
+  }
+}
+
+function startSessionsPoller() {
+  pollSessions();
+  clearInterval(sessionsTimer);
+  sessionsTimer = setInterval(pollSessions, 5000);
+}
+
+function stopSessionsPoller() {
+  clearInterval(sessionsTimer);
+  sessionsEl.textContent = "–";
+}
+
+async function refreshFiles() {
+  if (!connected) return;
+  filelistEl.innerHTML = '<li class="empty">loading…</li>';
+  try {
+    const res = await fetch(
+      `${apiBase()}/files/list?path=${encodeURIComponent(filesdirEl.value)}`,
+    );
+    const data = await res.json();
+    if (!Array.isArray(data.entries)) throw new Error(data.error ?? "list failed");
+    filelistEl.innerHTML = "";
+    if (data.entries.length === 0) {
+      filelistEl.innerHTML = '<li class="empty">empty directory</li>';
+      return;
+    }
+    for (const entry of data.entries) {
+      const li = document.createElement("li");
+      li.innerHTML = `<span class="fname"></span><span class="fsize"></span>`;
+      li.querySelector(".fname").textContent = entry.name;
+      li.querySelector(".fsize").textContent = entry.is_dir
+        ? "dir"
+        : `${(entry.size / 1024).toFixed(1)}K`;
+      if (!entry.is_dir) {
+        li.classList.add("file");
+        li.title = "click to download";
+        li.addEventListener("click", () => downloadFile(entry.name));
+      }
+      filelistEl.appendChild(li);
+    }
+  } catch (e) {
+    filelistEl.innerHTML = `<li class="empty">error: ${String(e.message ?? e)}</li>`;
+  }
+}
+
+function downloadFile(name) {
+  const a = document.createElement("a");
+  a.href = `${apiBase()}/files/download?path=${encodeURIComponent(filesdirEl.value + "/" + name)}`;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+async function uploadFiles(fileList) {
+  for (const file of fileList) {
+    const target = `${filesdirEl.value}/${file.name}`;
+    notice(`uploading ${file.name} (${file.size} bytes)…`, "36");
+    try {
+      const res = await fetch(
+        `${apiBase()}/files/upload?path=${encodeURIComponent(target)}`,
+        { method: "POST", body: file },
+      );
+      const data = await res.json();
+      notice(res.ok ? `uploaded → ${data.path}` : `upload failed: ${data.error}`,
+             res.ok ? "32" : "31");
+    } catch (e) {
+      notice(`upload failed: ${e.message ?? e}`, "31");
+    }
+  }
+  refreshFiles();
 }
 
 // Keyboard → firmware. Everything the user types crosses verbatim;
@@ -139,6 +245,23 @@ window.addEventListener("resize", () => fit.fit());
 connectBtn.addEventListener("click", connect);
 urlInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") connect();
+});
+document.getElementById("refresh").addEventListener("click", refreshFiles);
+filesdirEl.addEventListener("change", refreshFiles);
+document.getElementById("upload").addEventListener("change", (e) => {
+  if (e.target.files?.length) uploadFiles(e.target.files);
+  e.target.value = "";
+});
+const dropzone = document.getElementById("dropzone");
+dropzone.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  dropzone.classList.add("drag");
+});
+dropzone.addEventListener("dragleave", () => dropzone.classList.remove("drag"));
+dropzone.addEventListener("drop", (e) => {
+  e.preventDefault();
+  dropzone.classList.remove("drag");
+  if (e.dataTransfer?.files?.length) uploadFiles(e.dataTransfer.files);
 });
 document.getElementById("hint").textContent =
   "?ws= overrides the endpoint · Ctrl-C/Ctrl-D/Tab pass through";
