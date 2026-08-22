@@ -135,7 +135,10 @@ function connect() {
 function apiBase() {
   try {
     const u = new URL(urlInput.value.trim());
-    return `${u.protocol === "wss:" ? "https" : "http"}//`.replace("//", "://") + u.host;
+    const proto = u.protocol === "wss:" ? "https:" : "http:";
+    // Firmware pairing: control API lives next door (WS 2024 → HTTP 2025).
+    if (!u.port) return `${proto}//${u.host}`;
+    return `${proto}//${u.hostname}:${Number(u.port) + 1}`;
   } catch {
     return "";
   }

@@ -675,6 +675,12 @@ async fn handle_control_request(
             "Access-Control-Allow-Methods",
             "GET, POST, OPTIONS".parse().unwrap(),
         );
+        // Chrome's Local Network Access preflight asks for this when the
+        // caller's context counts as public; harmless to always send.
+        res.headers_mut().insert(
+            "Access-Control-Allow-Private-Network",
+            "true".parse().unwrap(),
+        );
         res
     }
 
