@@ -1,81 +1,27 @@
-/* FuseBox Console — the visual layer.
+/* FuseConsole — app core: terminal drawer, files drawer, control-api glue.
  *
- * Speaks ONLY the firmware protocols documented in docs/websocket.md:
- *   WS 2024        : verbatim keyboard bytes out; JSON stdout chunks,
- *                    exit events and control frames in.
- *   HTTP 2025      : /sessions + /files/list|download|upload (Control API).
+ * Chat logic lives in chat.js; the two halves communicate through
+ * window.ConsoleAPI (send/onOutput/apiBase/toast/ensureConnected/…).
  *
- * Zero build step; only vendored xterm.js.
+ * Firmware protocols (docs/websocket.md):
+ *   WS 2024   : verbatim keyboard/agent bytes in; JSON stdout chunks out
+ *   HTTP 2025 : /sessions, /files/list|download|upload, /status
  */
 "use strict";
 
 const $ = (id) => document.getElementById(id);
 
-const urlInput = $("url");
-const connectBtn = $("connect");
-const statusEl = $("status");
 const dotEl = $("dot");
-const hintEl = $("hint");
-const sessionsEl = $("sessions");
+const statusEl = $("status");
+const connectBtn = $("connect");
+const termOverlay = $("term-overlay");
 const filesdirEl = $("filesdir");
 const filelistEl = $("filelist");
-const filesAside = $("files");
-const termOverlay = $("term-overlay");
+const devDrawer = $("devdrawer");
 
-// Restore last endpoint (or ?ws= override) before anything else.
-const params = new URLSearchParams(location.search);
-if (params.get("ws")) urlInput.value = params.get("ws");
-else {
-  const saved = localStorage.getItem("fusebox.wsurl");
-  if (saved) urlInput.value = saved;
-}
-const savedDir = localStorage.getItem("fusebox.filesdir");
-if (savedDir) filesdirEl.value = savedDir;
-filesdirEl.addEventListener("change", () =>
-  localStorage.setItem("fusebox.filesdir", filesdirEl.value));
+/* ------------------------------- toasts --------------------------------- */
 
-/* ------------------------------- terminal ------------------------------- */
-
-const term = new window.Terminal({
-  cursorBlink: true,
-  fontSize: 14,
-  fontFamily: "'JetBrains Mono', 'Cascadia Code', 'Fira Code', ui-monospace, monospace",
-  theme: {
-    background: "#0f141a",
-    foreground: "#d8dee9",
-    cursor: "#88c0d0",
-    cursorAccent: "#0f141a",
-    selectionBackground: "rgba(136,192,208,.28)",
-    black: "#3b4252", red: "#bf616a", green: "#a3be8c", yellow: "#ebcb8b",
-    blue: "#81a1c1", magenta: "#b48ead", cyan: "#88c0d0", white: "#e5e9f0",
-    brightBlack: "#4c566a", brightRed: "#d08770", brightGreen: "#b5ce8f",
-    brightYellow: "#f0d39b", brightBlue: "#93bcc7", brightMagenta: "#c8a2bd",
-    brightCyan: "#9fd3dc", brightWhite: "#eceff4",
-  },
-});
-const fit = new window.FitAddon.FitAddon();
-term.loadAddon(fit);
-term.open($("terminal"));
-fit.fit();
-
-let ws = null;
-let connected = false;
-
-function setStatus(mode, label) {
-  dotEl.className = "dot " + mode;
-  statusEl.textContent = label;
-  termOverlay.classList.toggle("hidden", mode === "on");
-  document.title =
-    mode === "on" ? "fusebox-console-connected" : "fusebox-console-ready";
-}
-
-function notice(text, color) {
-  term.write(`\r\n\u001b[${color}m${text}\u001b[0m\r\n`);
-}
-
-/* -------------------------------- toasts -------------------------------- */
-
-function toast(msg, kind = "info", ms = 3500) {
+function toast(msg, kind = "info", ms = 3200) {
   const el = document.createElement("div");
   el.className = `toast ${kind}`;
   el.textContent = msg;
@@ -83,48 +29,150 @@ function toast(msg, kind = "info", ms = 3500) {
   if (ms > 0) setTimeout(() => dismiss(el), ms);
   return el;
 }
-
 function dismiss(el) {
   el.classList.add("fadeout");
   setTimeout(() => el.remove(), 320);
 }
 
-/* ------------------------------ control api ----------------------------- */
+/* ------------------------------ terminal -------------------------------- */
 
-// Firmware pairing: control API lives next door (WS 2024 → HTTP 2025).
+const term = new window.Terminal({
+  cursorBlink: true,
+  fontSize: 13,
+  fontFamily: "'JetBrains Mono', 'Cascadia Code', ui-monospace, Menlo, monospace",
+  theme: {
+    background: "#12100e",
+    foreground: "#e5e0d5",
+    cursor: "#d97757",
+    cursorAccent: "#12100e",
+    selectionBackground: "rgba(217,119,87,.25)",
+    black: "#3a3630", red: "#d08770", green: "#a3be8c", yellow: "#ebcb8b",
+    blue: "#81a1c1", magenta: "#b48ead", cyan: "#88c0d0", white: "#e5e0d5",
+    brightBlack: "#6b6459", brightRed: "#e0887a", brightGreen: "#b5ce8f",
+    brightYellow: "#f0d39b", brightBlue: "#93bcc7", brightMagenta: "#c8a2bd",
+    brightCyan: "#9fd3dc", brightWhite: "#f0eee6",
+  },
+});
+const fit = new window.FitAddon.FitAddon();
+term.loadAddon(fit);
+term.open($("terminal"));
+
+let ws = null;
+let connected = false;
+const outputSubs = [];
+
+function setStatus(mode, label) {
+  dotEl.className = "dot " + mode;
+  statusEl.textContent = label;
+  // mirror the state into the terminal pane toolbar (class-based copies)
+  for (const el of document.querySelectorAll(".js-dot")) el.className = `dot ${mode}`;
+  for (const el of document.querySelectorAll(".js-status")) el.textContent = label;
+  termOverlay.classList.toggle("hidden", mode === "on");
+  document.title =
+    mode === "on" ? "fuseconsole-connected" : "fuseconsole-ready";
+}
+
+function termNotice(text, color) {
+  term.write(`\r\n\u001b[${color}m${text}\u001b[0m\r\n`);
+}
+
+function emitOutput(text) {
+  term.write(text);
+  for (const cb of outputSubs) {
+    try { cb(text); } catch { /* subscriber errors must not break relay */ }
+  }
+}
+
+function sendResize() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+  }
+}
+
+/* ------------------------------ connection ------------------------------ */
+
+function connect() {
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+  const url = localStorage.getItem("fusebox.wsurl") ?? "ws://192.0.2.2:2024";
+  setStatus("pending", `connecting to ${url} …`);
+
+  ws = new WebSocket(url);
+  ws.binaryType = "arraybuffer";
+
+  ws.onopen = () => {
+    connected = true;
+    connectBtn.textContent = "Disconnect";
+    setStatus("on", "connected");
+    sendResize();
+    term.focus();
+    pollSessions();
+    window.Chat?.onConnected?.();
+  };
+
+  ws.onmessage = (ev) => {
+    if (ev.data instanceof ArrayBuffer) {
+      emitOutput(new TextDecoder().decode(ev.data));
+      return;
+    }
+    let obj;
+    try {
+      obj = JSON.parse(ev.data);
+    } catch {
+      emitOutput(ev.data);
+      return;
+    }
+    if (typeof obj.stream === "string" && typeof obj.text === "string") {
+      emitOutput(obj.text);
+    } else if (obj.event === "exit") {
+      termNotice(`[session exited — code ${obj.code}]`, "33");
+      setStatus("pending", "session ended — reconnecting on next use");
+      connected = false;
+    } else if (obj.event === "pong") {
+      /* keepalive */
+    } else if (obj.error) {
+      termNotice(`[error] ${obj.error}`, "31");
+    } else {
+      emitOutput(ev.data);
+    }
+  };
+
+  ws.onclose = () => {
+    connected = false;
+    connectBtn.textContent = "Connect";
+    setStatus("off", "disconnected");
+    filelistEl.innerHTML = '<li class="empty">connect to browse</li>';
+  };
+
+  ws.onerror = () => {
+    setStatus("err", "websocket error — is the VM up?");
+  };
+}
+
+function ensureConnected() {
+  if (connected && ws?.readyState === WebSocket.OPEN) return Promise.resolve();
+  connect();
+  return new Promise((resolve, reject) => {
+    const until = Date.now() + 12000;
+    const tick = () => {
+      if (connected) return resolve();
+      if (Date.now() > until) return reject(new Error("could not connect to sandbox"));
+      setTimeout(tick, 120);
+    };
+    tick();
+  });
+}
+
+/* --------------------------- control api base --------------------------- */
+
 function apiBase() {
   try {
-    const u = new URL(urlInput.value.trim());
+    const u = new URL(localStorage.getItem("fusebox.wsurl") ?? "ws://192.0.2.2:2024");
     const proto = u.protocol === "wss:" ? "https:" : "http:";
     if (!u.port) return `${proto}//${u.host}`;
     return `${proto}//${u.hostname}:${Number(u.port) + 1}`;
   } catch {
     return "";
   }
-}
-
-let sessionsTimer = null;
-
-async function pollSessions() {
-  try {
-    const res = await fetch(`${apiBase()}/sessions`);
-    const data = await res.json();
-    const n = (data.sessions ?? []).length;
-    sessionsEl.textContent = n === 1 ? "1 session" : `${n} sessions`;
-  } catch {
-    sessionsEl.textContent = "–";
-  }
-}
-
-function startSessionsPoller() {
-  pollSessions();
-  clearInterval(sessionsTimer);
-  sessionsTimer = setInterval(pollSessions, 5000);
-}
-
-function stopSessionsPoller() {
-  clearInterval(sessionsTimer);
-  sessionsEl.textContent = "–";
 }
 
 /* ------------------------------ files panel ----------------------------- */
@@ -143,9 +191,12 @@ const FILE_ICONS = [
 function iconFor(name) {
   return (FILE_ICONS.find(([re]) => re.test(name)) ?? [null, "📄"])[1];
 }
+function formatSize(n) {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} K`;
+  return `${(n / (1024 * 1024)).toFixed(1)} M`;
+}
 
-// Ensure a directory value has a matching <option> (custom paths restored
-// from storage or typed elsewhere aren't among the presets).
 function ensureDirOption(v) {
   if (!v) return;
   if (![...filesdirEl.options].some((o) => o.value === v)) {
@@ -176,12 +227,11 @@ async function refreshFiles() {
       li.innerHTML = `<span class="fico"></span><span class="fname"></span><span class="fsize"></span>`;
       li.querySelector(".fico").textContent = entry.is_dir ? "📁" : iconFor(entry.name);
       li.querySelector(".fname").textContent = entry.name;
-      li.querySelector(".fsize").textContent = entry.is_dir
-        ? "" : formatSize(entry.size);
+      li.querySelector(".fsize").textContent = entry.is_dir ? "" : formatSize(entry.size);
       if (!entry.is_dir) {
         li.classList.add("file");
-        li.title = "click to download";
-        li.addEventListener("click", () => downloadFile(entry.name));
+        li.title = "click to preview / download";
+        li.addEventListener("click", () => window.Chat?.previewFile(entry.name));
       }
       filelistEl.appendChild(li);
     }
@@ -190,23 +240,10 @@ async function refreshFiles() {
   }
 }
 
-function formatSize(n) {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} K`;
-  return `${(n / (1024 * 1024)).toFixed(1)} M`;
+function downloadURL(path) {
+  return `${apiBase()}/files/download?path=${encodeURIComponent(path)}`;
 }
 
-function downloadFile(name) {
-  const a = document.createElement("a");
-  a.href = `${apiBase()}/files/download?path=${encodeURIComponent(filesdirEl.value + "/" + name)}`;
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  toast(`downloading ${name}…`, "info", 2500);
-}
-
-// Uploads ride XMLHttpRequest so we get real progress events.
 function uploadFile(file) {
   const target = `${filesdirEl.value}/${file.name}`;
   const el = toast(`⇧ ${file.name}`, "info", 0);
@@ -225,13 +262,13 @@ function uploadFile(file) {
     xhr.onload = () => {
       el.remove();
       if (xhr.status >= 200 && xhr.status < 300) {
-        toast(`✓ ${file.name} uploaded`, "ok", 3000);
-        notice(`[uploaded] ${target}`, "36");
+        toast(`✓ ${file.name} uploaded → ${filesdirEl.value}`, "ok", 3000);
       } else {
         let msg = `status ${xhr.status}`;
         try { msg = JSON.parse(xhr.responseText).error ?? msg; } catch {}
         toast(`✗ ${file.name}: ${msg}`, "err", 5000);
       }
+      refreshFiles();
       resolve();
     };
     xhr.onerror = () => {
@@ -244,133 +281,133 @@ function uploadFile(file) {
 }
 
 async function uploadFiles(list) {
+  if (!connected) await ensureConnected().catch(() => {});
   for (const f of list) await uploadFile(f);
-  refreshFiles();
 }
 
-/* -------------------------------- session ------------------------------- */
+/* ------------------------------- drawers -------------------------------- */
 
-function sendResize() {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
-  }
+function openDrawer(tab) {
+  devDrawer.classList.add("open");
+  document.body.classList.add("drawer-open");
+  for (const b of devDrawer.querySelectorAll(".tab"))
+    b.classList.toggle("active", b.dataset.tab === tab);
+  for (const p of devDrawer.querySelectorAll(".pane"))
+    p.classList.toggle("active", p.dataset.pane === tab);
+  if (tab === "terminal") setTimeout(() => { fit.fit(); term.focus(); }, 270);
+  if (tab === "files" && connected) refreshFiles();
 }
 
-function connect() {
-  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
-    ws.close();
-    return;
-  }
-  const url = urlInput.value.trim();
-  localStorage.setItem("fusebox.wsurl", url);
-  setStatus("pending", `connecting to ${url} …`);
-
-  ws = new WebSocket(url);
-  ws.binaryType = "arraybuffer";
-
-  ws.onopen = () => {
-    connected = true;
-    connectBtn.textContent = "Disconnect";
-    connectBtn.classList.add("connected");
-    setStatus("on", `connected — ${term.cols}×${term.rows}`);
-    // Align the pty with the browser terminal before the first prompt paints.
-    sendResize();
-    term.focus();
-    startSessionsPoller();
-    refreshFiles();
-  };
-
-  ws.onmessage = (ev) => {
-    if (ev.data instanceof ArrayBuffer) {
-      term.write(new TextDecoder().decode(ev.data));
-      return;
-    }
-    let obj;
-    try {
-      obj = JSON.parse(ev.data);
-    } catch {
-      term.write(ev.data); // not an envelope — render verbatim
-      return;
-    }
-    if (typeof obj.stream === "string" && typeof obj.text === "string") {
-      term.write(obj.text);
-    } else if (obj.event === "exit") {
-      notice(`[session exited — code ${obj.code}]`, "33");
-      setStatus("off", `session exited (code ${obj.code})`);
-    } else if (obj.event === "pong") {
-      /* keepalive; ignore */
-    } else if (obj.error) {
-      notice(`[error] ${obj.error}`, "31");
-    } else {
-      term.write(ev.data);
-    }
-  };
-
-  ws.onclose = () => {
-    connected = false;
-    connectBtn.textContent = "Connect";
-    connectBtn.classList.remove("connected");
-    setStatus("off", "disconnected");
-    stopSessionsPoller();
-    filelistEl.innerHTML = '<li class="empty">connect to browse</li>';
-  };
-
-  ws.onerror = () => {
-    setStatus("err", "websocket error — is the VM up?");
-  };
+function closeDrawer() {
+  devDrawer.classList.remove("open");
+  document.body.classList.remove("drawer-open");
+  setTimeout(() => fit.fit(), 260);
 }
+
+function toggleDrawer(tab) {
+  const isOpen = devDrawer.classList.contains("open");
+  const active = devDrawer.querySelector(".tab.active")?.dataset.tab;
+  if (isOpen && active === tab) closeDrawer();
+  else openDrawer(tab);
+}
+
+/* ------------------------------ ConsoleAPI ------------------------------ */
+
+window.ConsoleAPI = {
+  apiBase,
+  toast,
+  termNotice,
+  sendRaw: (s) => { if (ws?.readyState === WebSocket.OPEN) ws.send(s); },
+  onOutput: (cb) => {
+    outputSubs.push(cb);
+    return () => {
+      const i = outputSubs.indexOf(cb);
+      if (i >= 0) outputSubs.splice(i, 1);
+    };
+  },
+  isConnected: () => connected,
+  ensureConnected,
+  openTerminalDrawer: () => openDrawer("terminal"),
+  downloadURL,
+  listFiles: async (path) => {
+    const res = await fetch(`${apiBase()}/files/list?path=${encodeURIComponent(path)}`);
+    return res.json();
+  },
+  fetchFile: async (path) => {
+    const res = await fetch(downloadURL(path));
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `HTTP ${res.status}`);
+    return res;
+  },
+};
+
+window.ConsoleAPI.setMdRenderer = (fn) => { window.__mdRender = fn; };
 
 /* ------------------------------- wiring --------------------------------- */
 
-// Keyboard → firmware. Everything the user types crosses verbatim;
-// Ctrl-C, arrows and tab reach the line discipline untouched.
-term.onData((data) => {
-  if (connected && ws.readyState === WebSocket.OPEN) ws.send(data);
-});
-
-// Browser resize / pane changes propagate as SIGWINCH inside the guest.
-term.onResize(() => {
-  if (connected) {
-    sendResize();
-    setStatus("on", `connected — ${term.cols}×${term.rows}`);
-  }
-});
-
-window.addEventListener("resize", () => fit.fit());
-
 connectBtn.addEventListener("click", connect);
-urlInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") connect();
-});
+
+$("drawer-terminal").addEventListener("click", () => toggleDrawer("terminal"));
+$("drawer-files").addEventListener("click", () => toggleDrawer("files"));
+$("drawer-close").addEventListener("click", closeDrawer);
+for (const b of devDrawer.querySelectorAll(".tab")) {
+  b.addEventListener("click", () => openDrawer(b.dataset.tab));
+}
 
 $("refresh").addEventListener("click", refreshFiles);
 filesdirEl.addEventListener("change", () => {
   localStorage.setItem("fusebox.filesdir", filesdirEl.value);
   refreshFiles();
 });
-$("upload").addEventListener("change", (e) => {
-  if (e.target.files?.length) uploadFiles(e.target.files);
+$("dropzone").addEventListener("dragover", (e) => {
+  e.preventDefault();
+  $("dropzone").classList.add("drag");
+});
+$("dropzone").addEventListener("dragleave", () => $("dropzone").classList.remove("drag"));
+$("dropzone").addEventListener("drop", (e) => {
+  e.preventDefault();
+  $("dropzone").classList.remove("drag");
+  if (e.dataTransfer?.files?.length) uploadFiles(e.dataTransfer.files);
+});
+$("attach").addEventListener("click", () => $("chatupload").click());
+$("chatupload").addEventListener("change", async (e) => {
+  if (e.target.files?.length) {
+    await uploadFiles(e.target.files);
+    window.Chat?.onUploaded?.([...e.target.files].map(f => f.name));
+  }
   e.target.value = "";
 });
 
-const dropzone = $("dropzone");
-dropzone.addEventListener("dragover", (e) => {
-  e.preventDefault();
-  dropzone.classList.add("drag");
-});
-dropzone.addEventListener("dragleave", () => dropzone.classList.remove("drag"));
-dropzone.addEventListener("drop", (e) => {
-  e.preventDefault();
-  dropzone.classList.remove("drag");
-  if (e.dataTransfer?.files?.length) uploadFiles(e.dataTransfer.files);
-});
+window.addEventListener("resize", () => fit.fit());
 
-$("paneltoggle").addEventListener("click", () => {
-  filesAside.classList.toggle("hidden");
-  setTimeout(() => fit.fit(), 240);
-});
+/* ---------------------------- sessions chip ----------------------------- */
 
-hintEl.textContent =
-  "?ws= overrides the endpoint · Ctrl-C/Ctrl-D/Tab pass through";
+const sessionsEl = $("sessions");
+async function pollSessions() {
+  if (!sessionsEl) return;
+  if (!connected) {
+    sessionsEl.textContent = "–";
+    return;
+  }
+  try {
+    const data = await fetch(`${apiBase()}/sessions`).then((r) => r.json());
+    const n = Array.isArray(data.sessions) ? data.sessions.length : null;
+    if (n !== null) sessionsEl.textContent = n === 1 ? "1 session" : `${n} sessions`;
+  } catch { /* control API unreachable — keep last value */ }
+}
+setInterval(pollSessions, 5000);
 
+/* -------------------------------- boot ---------------------------------- */
+
+// ?ws=ws://host:port overrides the stored endpoint (dev/test harnesses)
+const qsWs = new URLSearchParams(location.search).get("ws");
+if (qsWs) localStorage.setItem("fusebox.wsurl", qsWs);
+
+const savedDir = localStorage.getItem("fusebox.filesdir");
+if (savedDir) ensureDirOption(savedDir);
 setStatus("off", "disconnected");
+
+// Auto-open the terminal drawer once, so first-time users see the sandbox.
+if (!localStorage.getItem("fusebox.seen")) {
+  localStorage.setItem("fusebox.seen", "1");
+  setTimeout(() => openDrawer("terminal"), 400);
+}

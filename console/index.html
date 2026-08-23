@@ -3,59 +3,147 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FuseBox Console</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%2388c0d0' d='M12 2 3 7v10l9 5 9-5V7l-9-5zm0 2.3L18.6 8 12 11.7 5.4 8 12 4.3zM5 9.7l6 3.4v6.6l-6-3.3V9.7zm14 0v6.7l-6 3.3v-6.6l6-3.4z'/%3E%3C/svg%3E">
+<title>FuseConsole</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ctext x='2' y='19' font-size='20' fill='%23d97757'%3E%E2%9C%B3%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="vendor/xterm.min.css">
 <script src="vendor/xterm.min.js"></script>
 <script src="vendor/addon-fit.min.js"></script>
 </head>
 <body>
-<header>
-  <span class="brand" title="FuseBox — microVM sandbox">
-    <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
-      <path fill="#88c0d0" d="M12 2 3 7v10l9 5 9-5V7l-9-5zm0 2.3L18.6 8 12 11.7 5.4 8 12 4.3zM5 9.7l6 3.4v6.6l-6-3.3V9.7zm14 0v6.7l-6 3.3v-6.6l6-3.4z"/>
-    </svg>
-    Fuse<b>Box</b>&nbsp;<span style="color:var(--fg-2);font-weight:400;font-size:12px">console</span>
-  </span>
-  <span id="dot" class="dot"></span>
-  <input id="url" type="text" spellcheck="false" value="ws://192.0.2.2:2024"
-         title="WebSocket endpoint of the sandbox supervisor">
-  <button id="connect">Connect</button>
-  <span id="status">disconnected</span>
-  <span id="sessions" class="chip" title="active shell sessions">–</span>
-  <button id="paneltoggle" title="toggle files panel">&#9636;</button>
+
+<!-- ============================ top bar ============================ -->
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">✳</span>
+    <span class="brand-name">FuseConsole</span>
+  </div>
+  <div class="top-status">
+    <span id="dot" class="dot"></span>
+    <span id="status">disconnected</span>
+  </div>
+  <div class="top-actions">
+    <span id="sessions" class="chip" title="active shell sessions">–</span>
+    <button id="drawer-terminal" class="ghost" title="toggle terminal drawer">▮▮ Terminal</button>
+    <button id="drawer-files" class="ghost" title="toggle files drawer">▤ Files</button>
+    <button id="newchat" class="ghost" title="start a new conversation">＋ New chat</button>
+    <button id="settingsbtn" class="ghost icon" title="settings">⚙</button>
+  </div>
 </header>
 
-<main>
-  <div id="terminal-wrap">
-    <div id="terminal"></div>
-    <div id="term-overlay"><span><span class="pulse">◉</span> not connected — hit Connect</span></div>
-  </div>
-  <aside id="files">
-    <div class="files-head">
-      <span>files</span>
-      <button id="refresh" title="refresh listing">&#x21bb;</button>
+<!-- ============================ chat ============================ -->
+<main id="chatwrap">
+  <div id="chatscroll">
+    <div id="chatcol">
+      <div id="emptystate" class="empty-state">
+        <div class="empty-mark">✳</div>
+        <h1>What should we build?</h1>
+        <p>Your sandbox is attached. Ask for anything — the model can run
+           commands and read/write files inside the microVM.</p>
+        <div class="suggestions">
+          <button data-fill="List what's mounted in this sandbox and read the first skill file you find.">Explore the sandbox</button>
+          <button data-fill="Write a small bash one-liner that prints today's date, save it to /mnt/user-data/outputs/date.sh and run it.">Save &amp; run a script</button>
+          <button data-fill="What's in /proc/cpuinfo here? Summarize the CPU the sandbox sees.">Inspect the machine</button>
+        </div>
+      </div>
+      <!-- messages render here -->
     </div>
-    <select id="filesdir" title="directory">
-      <option value="/mnt/user-data/outputs">outputs</option>
-      <option value="/mnt/user-data/uploads">uploads</option>
-      <option value="/mnt/user-data/tool_results">tool_results</option>
-      <option value="/mnt/filestore">filestore (ro)</option>
-    </select>
-    <ul id="filelist"><li class="empty">connect to browse</li></ul>
-    <label id="dropzone">drop files here or click to upload
-      <input id="upload" type="file" multiple>
-    </label>
-  </aside>
+  </div>
+
+  <!-- composer -->
+  <div class="composer-zone">
+    <div class="composer">
+      <textarea id="chatin" rows="1" placeholder="Write a message…"></textarea>
+      <div class="composer-row">
+        <button id="attach" class="icon-btn" title="upload a file into /mnt/user-data/uploads">+</button>
+      <span class="spacer"></span>
+        <button id="modelchip" class="chip" title="model settings">⚙ model</button>
+        <button id="send" class="send" title="send (Enter)">➤</button>
+      </div>
+    </div>
+    <div class="composer-note">model output executes inside the FuseBox microVM · Enter sends, Shift+Enter = newline</div>
+  </div>
 </main>
 
-<footer>
-  <span>firmware boundary: raw bytes &rarr; WS 2024; JSON stdout chunks + control frames &larr;</span>
-  <span id="hint"></span>
-</footer>
+<!-- ======================= dev drawers (right) ======================= -->
+<aside id="devdrawer" class="drawer">
+  <div class="drawer-tabs">
+    <button data-tab="terminal" class="tab active">Terminal</button>
+    <button data-tab="files" class="tab">Files</button>
+    <span class="flex-spacer"></span>
+    <button id="drawer-close" class="ghost icon" title="close">✕</button>
+  </div>
+
+  <section class="pane active" data-pane="terminal">
+    <div class="pane-toolbar">
+      <span class="dot js-dot"></span>
+      <span class="js-status" style="font-size:12px;color:var(--fg-2)">disconnected</span>
+      <span class="flex-spacer"></span>
+      <button id="connect" class="primary small">Connect</button>
+    </div>
+    <div id="terminal-wrap">
+      <div id="terminal"></div>
+      <div id="term-overlay"><span><span class="pulse">◉</span> not connected</span></div>
+    </div>
+  </section>
+
+  <section class="pane" data-pane="files">
+    <div class="pane-toolbar">
+      <select id="filesdir" title="directory">
+        <option value="/mnt/user-data/outputs">outputs</option>
+        <option value="/mnt/user-data/uploads">uploads</option>
+        <option value="/mnt/user-data/tool_results">tool_results</option>
+        <option value="/mnt/filestore">filestore (ro)</option>
+      </select>
+      <button id="refresh" class="small" title="refresh">↻</button>
+    </div>
+    <ul id="filelist"><li class="empty">connect to browse</li></ul>
+    <label id="dropzone" for="chatupload">drop files here or click to upload</label>
+  </section>
+</aside>
+
+<!-- ============================ settings ============================ -->
+<div id="settings" class="modal-veil" hidden>
+  <div class="modal">
+    <h2>Model settings</h2>
+    <label>Provider base URL
+      <input id="set-base" type="text" placeholder="https://api.openai.com/v1   ·   mock">
+      <small>Any OpenAI-compatible /chat/completions endpoint. “mock” runs a built-in demo brain.</small>
+    </label>
+    <label>API key
+      <input id="set-key" type="password" placeholder="sk-…   (stored in this browser only)">
+    </label>
+    <label>Model
+      <input id="set-model" type="text" placeholder="gpt-4o-mini">
+    </label>
+    <label>System prompt
+      <textarea id="set-sys" rows="4"></textarea>
+    </label>
+    <div class="modal-actions">
+      <button id="set-cancel" class="ghost">Cancel</button>
+      <button id="set-save" class="primary">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- =========================== file viewer ========================== -->
+<div id="preview" class="modal-veil" hidden>
+  <div class="modal preview-modal">
+    <div class="preview-head">
+      <span id="preview-name" class="preview-name"></span>
+      <span class="flex-spacer"></span>
+      <a id="preview-download" class="ghost" download>⬇ download</a>
+      <button id="preview-close" class="ghost icon">✕</button>
+    </div>
+    <div id="preview-body" class="preview-body"></div>
+  </div>
+</div>
 
 <div id="toasts"></div>
+<input id="chatupload" type="file" multiple hidden>
+<script src="vendor/xterm.min.js"></script>
+<script src="vendor/addon-fit.min.js"></script>
 <script src="app.js"></script>
+<script src="chat.js"></script>
 </body>
 </html>
