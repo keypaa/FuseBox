@@ -193,19 +193,81 @@ body.drawer-open #chatwrap { width: calc(100% - var(--drawer-w)); }
   white-space: pre-wrap;
   word-break: break-word;
 }
-.msg.user .bubble { background: var(--bg-3); border: 1px solid var(--line-0); }
+.msg.user .bubble {
+  background: var(--bg-3);
+  border: 1px solid var(--line-0);
+  border-bottom-right-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.18);
+}
 .msg.assistant .bubble {
   max-width: 100%;
   background: transparent;
   padding: 2px 4px;
 }
 .msg .who {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   font-family: var(--serif);
   font-size: 13px;
   color: var(--fg-2);
   margin-bottom: 5px;
 }
+.msg .who .avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 21px;
+  height: 21px;
+  border-radius: 50%;
+  font-size: 12px;
+  color: var(--coral);
+  background: rgba(217,119,87,.12);
+  border: 1px solid rgba(217,119,87,.3);
+}
 .msg.assistant .who .mark { color: var(--coral); }
+
+/* streaming affordances */
+.msg.assistant.streaming .bubble { min-height: 22px; }
+.cursor {
+  display: inline-block;
+  width: 8px;
+  height: 15px;
+  margin-left: 2px;
+  vertical-align: -2px;
+  background: var(--coral);
+  border-radius: 2px;
+  animation: cursor-blink 1s steps(2) infinite;
+}
+@keyframes cursor-blink { 0%,49% { opacity: 1; } 50%,100% { opacity: 0; } }
+.thinking { display: inline-flex; gap: 5px; padding: 4px 0; }
+.thinking i {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--fg-2);
+  animation: think 1.2s ease-in-out infinite;
+}
+.thinking i:nth-child(2) { animation-delay: .18s; }
+.thinking i:nth-child(3) { animation-delay: .36s; }
+@keyframes think { 0%,60%,100% { transform: translateY(0); opacity: .45; } 30% { transform: translateY(-4px); opacity: 1; } }
+
+/* fenced code with copy button */
+.codewrap { position: relative; }
+.codewrap .copy-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  font: 11px var(--mono);
+  color: var(--fg-2);
+  background: var(--bg-3);
+  border: 1px solid var(--line-1);
+  border-radius: 6px;
+  padding: 2px 8px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .15s;
+}
+.codewrap:hover .copy-btn { opacity: 1; }
+.codewrap .copy-btn:hover { color: var(--fg-0); border-color: var(--fg-2); }
 .msg.tool {
   font-family: var(--mono);
   font-size: 12px;

@@ -75,6 +75,18 @@ const evalJs = async (expression) => {
 await send("Page.navigate", { url: consoleUrl }, sessionId);
 await sleep(2200);
 
+// FAKE_LLM_URL=http://127.0.0.1:8079/v1 → exercise the real streaming path
+// (SSE deltas + fragmented tool_calls) against test/sse-mock.py instead of
+// the built-in mock provider. Seed settings, then reload so they apply.
+if (process.env.FAKE_LLM_URL) {
+  await evalJs(`localStorage.setItem("fusebox.api", JSON.stringify({
+    baseUrl: ${JSON.stringify(process.env.FAKE_LLM_URL)},
+    key: "", model: "fake-stream",
+  })); "seeded"`);
+  await send("Page.navigate", { url: consoleUrl }, sessionId);
+  await sleep(1800);
+}
+
 // point the files panel somewhere real, then connect the PTY
 await evalJs(`(function(){
   localStorage.setItem("fusebox.filesdir", "/mnt/user-data/outputs");
@@ -140,8 +152,15 @@ log("saved " + outPath);
 
 const ok = finalState?.hasMockFile && finalState?.hasSummary &&
            JSON.stringify(apiList).includes("mock.txt");
-log(ok ? "==> CHAT E2E: ALL PASS" : "==> CHAT E2E: FAILED");
+let sseOk = true;
+if (process.env.FAKE_LLM_URL) {
+  let hits = "0";
+  try { hits = await import("node:fs").then(fs => fs.readFileSync("/tmp/fusebox-sse-hit", "utf8")); } catch {}
+  sseOk = parseInt(hits) >= 2; // round-trip proves SSE tool_call merge worked
+  log(`sse rounds: ${hits.trim()} ${sseOk ? "(loop completed over SSE)" : "(SSE loop incomplete)"}`);
+}
+log(ok && sseOk ? "==> CHAT E2E: ALL PASS" : "==> CHAT E2E: FAILED");
 ws.close();
 chrome.kill();
 try { rmSync(profileDir, { recursive: true, force: true }); } catch {}
-process.exit(ok ? 0 : 1);
+process.exit(ok && sseOk ? 0 : 1);

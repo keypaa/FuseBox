@@ -170,7 +170,7 @@ window.Chat = (() => {
     w.className = "msg assistant";
     const who = document.createElement("div");
     who.className = "who";
-    who.innerHTML = `<span class="mark">✳</span> assistant`;
+    who.innerHTML = `<span class="avatar">✳</span><span class="name">assistant</span>`;
     const b = document.createElement("div");
     b.className = "bubble md";
     const body = typeof msg.content === "string" ? msg.content : "";
@@ -189,8 +189,30 @@ window.Chat = (() => {
     emptystate.hidden = true;
     const el = elFor(msg);
     chatcol.appendChild(el);
+    enhanceCode(el);
     scrollBottom();
     return el;
+  }
+
+  // wrap fenced blocks with a copy button (delegated state per block)
+  function enhanceCode(scope) {
+    for (const pre of scope.querySelectorAll(".bubble pre")) {
+      if (pre.parentElement?.classList.contains("codewrap")) continue;
+      const wrap = document.createElement("div");
+      wrap.className = "codewrap";
+      const btn = document.createElement("button");
+      btn.className = "copy-btn";
+      btn.type = "button";
+      btn.textContent = "copy";
+      btn.addEventListener("click", () => {
+        navigator.clipboard?.writeText(pre.textContent).then(() => {
+          btn.textContent = "copied";
+          setTimeout(() => (btn.textContent = "copy"), 1200);
+        }).catch(() => {});
+      });
+      pre.replaceWith(wrap);
+      wrap.append(btn, pre);
+    }
   }
 
   function rerenderAll() {
@@ -301,9 +323,10 @@ window.Chat = (() => {
     },
   ];
 
-  async function providerComplete(payloadMessages) {
+  async function providerComplete(payloadMessages, onDelta) {
     if (settings.baseUrl === "mock") return mockComplete(payloadMessages);
 
+    const stream = settings.stream !== false;
     const res = await fetch(settings.baseUrl.replace(/\/$/, "") + "/chat/completions", {
       method: "POST",
       headers: {
@@ -315,14 +338,59 @@ window.Chat = (() => {
         messages: payloadMessages,
         tools: TOOLS_SCHEMA,
         temperature: 0.4,
+        ...(stream ? { stream: true } : {}),
       }),
     });
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
       throw new Error(`${res.status} ${detail.slice(0, 300)}`);
     }
-    const data = await res.json();
-    return data.choices?.[0]?.message ?? { role: "assistant", content: "(empty response)" };
+    if (!stream || !res.body) {
+      const data = await res.json();
+      return data.choices?.[0]?.message ?? { role: "assistant", content: "(empty response)" };
+    }
+
+    // SSE: merge content deltas and tool_call fragments as they arrive
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    let content = "";
+    const toolCalls = [];
+    while (true) {
+      if (abortFlag) {
+        reader.cancel().catch(() => {});
+        throw new DOMException("stopped", "AbortError");
+      }
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line.startsWith("data:")) continue;
+        const data = line.slice(5).trim();
+        if (data === "[DONE]") continue;
+        let j;
+        try { j = JSON.parse(data); } catch { continue; }
+        const delta = j.choices?.[0]?.delta ?? {};
+        if (delta.content) content += delta.content;
+        for (const tc of delta.tool_calls ?? []) {
+          const i = tc.index ?? 0;
+          toolCalls[i] ??= { id: "", type: "function", function: { name: "", arguments: "" } };
+          if (tc.id) toolCalls[i].id = tc.id;
+          if (tc.function?.name) toolCalls[i].function.name += tc.function.name;
+          if (tc.function?.arguments) toolCalls[i].function.arguments += tc.function.arguments;
+        }
+        if (delta.content || delta.tool_calls?.length) onDelta?.(content, toolCalls);
+      }
+    }
+    if (!content && !toolCalls.length) content = "(empty response)";
+    return {
+      role: "assistant",
+      ...(content ? { content } : { content: null }),
+      ...(toolCalls.length ? { tool_calls: toolCalls } : {}),
+    };
   }
 
   // Deterministic demo brain: proves the whole tool loop without any key.
@@ -394,7 +462,37 @@ window.Chat = (() => {
         ),
       ];
 
-      const reply = await providerComplete(payload);
+      // live bubble: thinking dots → streamed markdown → replaced by the
+      // final render once the reply completes
+      const live = document.createElement("div");
+      live.className = "msg assistant streaming";
+      live.innerHTML =
+        `<div class="who"><span class="avatar">✳</span><span class="name">assistant</span></div>` +
+        `<div class="bubble md"><span class="thinking"><i></i><i></i><i></i></span></div>`;
+      emptystate.hidden = true;
+      chatcol.appendChild(live);
+      scrollBottom();
+      const liveBody = live.querySelector(".bubble");
+      let liveRaf = false;
+      const onDelta = (text, tools) => {
+        if (tools?.length) {
+          liveBody.innerHTML =
+            `<span class="toolcall-note">▸ ${esc(tools.map((c) => c.function?.name || "tool").join(", "))}…</span>`;
+        } else {
+          liveBody.innerHTML = md(text) + '<span class="cursor"></span>';
+        }
+        if (!liveRaf) {
+          liveRaf = true;
+          requestAnimationFrame(() => { liveRaf = false; scrollBottom(); });
+        }
+      };
+
+      let reply;
+      try {
+        reply = await providerComplete(payload, onDelta);
+      } finally {
+        live.remove();
+      }
       messages.push(reply);
       persist();
 
@@ -475,8 +573,12 @@ window.Chat = (() => {
         }
         persist();
       }
-      toast(`model error: ${e.message ?? e}`, "err", 6000);
-      notice(`[model error] ${e.message ?? e}`, "31");
+      if (e?.name === "AbortError") {
+        notice("[stopped]", "33");
+      } else {
+        toast(`model error: ${e.message ?? e}`, "err", 6000);
+        notice(`[model error] ${e.message ?? e}`, "31");
+      }
     } finally {
       setBusy(false);
     }
@@ -484,7 +586,7 @@ window.Chat = (() => {
 
   function stopGenerating() {
     abortFlag = true;
-    toast("stopping after current step…", "info", 2000);
+    toast("stopping…", "info", 1500);
   }
 
   function notice(text, color) {

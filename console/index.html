@@ -107,14 +107,16 @@
   <div class="modal">
     <h2>Model settings</h2>
     <label>Provider base URL
-      <input id="set-base" type="text" placeholder="https://api.openai.com/v1   ·   mock">
-      <small>Any OpenAI-compatible /chat/completions endpoint. “mock” runs a built-in demo brain.</small>
+      <input id="set-base" type="text" placeholder="http://127.0.0.1:8078/v1   ·   mock">
+      <small>OpenAI-compatible /chat/completions. “mock” = built-in demo brain.
+             For Ollama Cloud run <code>./llm-proxy.py</code> and use
+             <code>http://127.0.0.1:8078/v1</code> (browsers can’t call ollama.com directly — CORS).</small>
     </label>
     <label>API key
-      <input id="set-key" type="password" placeholder="sk-…   (stored in this browser only)">
+      <input id="set-key" type="password" placeholder="ollama key / sk-…   (stored in this browser only)">
     </label>
     <label>Model
-      <input id="set-model" type="text" placeholder="gpt-4o-mini">
+      <input id="set-model" type="text" placeholder="gemma4:31b">
     </label>
     <label>System prompt
       <textarea id="set-sys" rows="4"></textarea>
