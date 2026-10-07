@@ -11,32 +11,35 @@ echo "=========================================="
 # 0. Check and install prerequisites
 echo "[0/5] Checking prerequisites..."
 MISSING=""
-APT_PKGS=""
+PKGS=""
 command -v cargo >/dev/null 2>&1 || MISSING="cargo"
 command -v go >/dev/null 2>&1 || MISSING="$MISSING go"
-command -v mksquashfs >/dev/null 2>&1 || APT_PKGS="$APT_PKGS squashfs-tools"
-command -v openssl >/dev/null 2>&1 || APT_PKGS="$APT_PKGS openssl"
-command -v flex >/dev/null 2>&1 || APT_PKGS="$APT_PKGS flex"
-command -v bison >/dev/null 2>&1 || APT_PKGS="$APT_PKGS bison"
-command -v bc >/dev/null 2>&1 || APT_PKGS="$APT_PKGS bc"
-dpkg -s libelf-dev >/dev/null 2>&1 || APT_PKGS="$APT_PKGS libelf-dev"
-dpkg -s libgmp-dev >/dev/null 2>&1 || APT_PKGS="$APT_PKGS libgmp-dev"
-dpkg -s libmpc-dev >/dev/null 2>&1 || APT_PKGS="$APT_PKGS libmpc-dev"
-command -v x86_64-linux-musl-gcc >/dev/null 2>&1 || APT_PKGS="$APT_PKGS musl-tools"
+command -v mksquashfs >/dev/null 2>&1 || PKGS="$PKGS squashfs-tools"
+command -v openssl >/dev/null 2>&1 || PKGS="$PKGS openssl"
+command -v flex >/dev/null 2>&1 || PKGS="$PKGS flex"
+command -v bison >/dev/null 2>&1 || PKGS="$PKGS bison"
+command -v bc >/dev/null 2>&1 || PKGS="$PKGS bc"
+# Check for Arch packages (omarchy/arch)
+if ! pacman -Qs libelf >/dev/null 2>&1; then
+  PKGS="$PKGS libelf"
+fi
+if ! pacman -Qs libgmp >/dev/null 2>&1; then
+  PKGS="$PKGS libgmp"
+fi
+if ! pacman -Qs libmpc >/dev/null 2>&1; then
+  PKGS="$PKGS libmpc"
+fi
+if ! pacman -Qs musl-tools >/dev/null 2>&1; then
+  PKGS="$PKGS musl-tools"
+fi
 if [ -n "${MISSING:-}" ]; then
   echo "ERROR: missing commands that can't be auto-installed:$MISSING"
   echo "  Install them manually (e.g., rustup, go) and re-run."
   exit 1
 fi
-if [ -n "$APT_PKGS" ]; then
-  echo "  Installing missing system packages:$APT_PKGS..."
-  sudo apt-get update -qq && sudo apt-get install -y -qq $APT_PKGS
-fi
-
-# Ensure musl Rust target is installed
-if ! rustup target list --installed 2>/dev/null | grep -q x86_64-unknown-linux-musl; then
-  echo "  Installing rustup target x86_64-unknown-linux-musl..."
-  rustup target add x86_64-unknown-linux-musl
+if [ -n "$PKGS" ]; then
+  echo "  Installing missing system packages:$PKGS..."
+  sudo pacman -Sy --noconfirm $PKGS
 fi
 
 # Warn if envoy is missing (needed for egress proxy)
