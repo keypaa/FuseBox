@@ -23,27 +23,6 @@ fn kmsg(msg: &str) {
     }
 }
 
-/// Install a panic hook that reports the panic to /dev/kmsg. Without this,
-/// a panic during early startup writes to stderr (fd 2), which is broken in
-/// this VM and the message is silently lost.
-fn install_panic_hook() {
-    std::panic::set_hook(Box::new(|info| {
-        let p = info.payload();
-        let m = if let Some(s) = p.downcast_ref::<String>() {
-            s.clone()
-        } else if let Some(s) = p.downcast_ref::<&str>() {
-            s.to_string()
-        } else {
-            "<?>".to_string()
-        };
-        kmsg(&format!(
-            "process_api PANIC: {} @ {:?}",
-            m,
-            info.location()
-        ));
-    }));
-}
-
 /// Open a console/serial device and configure it so userspace writes succeed.
 ///
 /// In this Firecracker microVM the serial has no modem control lines, so the

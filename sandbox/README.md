@@ -39,7 +39,7 @@ and run the suite against `ws://192.0.2.2:2024`.
 | Control API file plane + sessions | ✅ | `/sessions`, `/files/list\|download\|upload` — shell↔API roundtrip covered by `console/test/smoke.mjs` |
 | Console (visual layer) | ✅ | `console/` zero-build xterm.js terminal with files panel; see root README |
 
-Not yet verified: Envoy MITM, snapstart.
+Envoy MITM wired via start.sh; snapstart not verified.
 
 ## Prerequisites
 
