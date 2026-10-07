@@ -4,6 +4,22 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "${SCRIPT_DIR}"
 
+# Re-exec as the invoking user: build steps need the user's rustup
+# toolchain (sudo drops RUSTUP_HOME/PATH, and root has no default
+# toolchain configured). All privileged steps below call sudo
+# internally, so the script itself does not need to run as root.
+if [ -n "${SUDO_USER:-}" ]; then
+  # Refresh sudo timestamp to avoid prompt during re-exec
+  sudo -v
+  exec sudo -u "$SUDO_USER" env HOME="$HOME" PATH="$PATH" "$0" "$@"
+fi
+
+# Keep sudo timestamp alive to avoid multiple password prompts
+sudo -v
+while true; do sudo -n true; sleep 60; done &
+SUDO_LOOP_PID=$!
+trap "kill $SUDO_LOOP_PID 2>/dev/null" INT TERM EXIT
+
 echo "=========================================="
 echo "  FuseBox Sandbox - One-Command Start"
 echo "=========================================="
@@ -23,14 +39,14 @@ command -v bc >/dev/null 2>&1 || PKGS="$PKGS bc"
 if ! pacman -Qs libelf >/dev/null 2>&1; then
   PKGS="$PKGS libelf"
 fi
-if ! pacman -Qs libgmp >/dev/null 2>&1; then
-  PKGS="$PKGS libgmp"
+if ! pacman -Qs gmp >/dev/null 2>&1; then
+  PKGS="$PKGS gmp"
 fi
 if ! pacman -Qs libmpc >/dev/null 2>&1; then
   PKGS="$PKGS libmpc"
 fi
-if ! pacman -Qs musl-tools >/dev/null 2>&1; then
-  PKGS="$PKGS musl-tools"
+if ! pacman -Qs musl >/dev/null 2>&1; then
+  PKGS="$PKGS musl"
 fi
 if [ -n "${MISSING:-}" ]; then
   echo "ERROR: missing commands that can't be auto-installed:$MISSING"
@@ -50,6 +66,7 @@ fi
 
 # 1. Build everything
 echo "[1/5] Building all components..."
+# Run as the invoking user (sudo would lose rustup toolchain config).
 make all
 
 # 2. Set up TAP networking
