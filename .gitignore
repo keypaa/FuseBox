@@ -37,3 +37,6 @@ sandbox/process_api/src/bin/steps.rs
 
 .jspace
 .worktrees/
+zenno/traces/
+zenno/telemetry/
+zenno/graph/
