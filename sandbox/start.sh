@@ -4,19 +4,29 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "${SCRIPT_DIR}"
 
-# Re-exec as the invoking user: build steps need the user's rustup
-# toolchain (sudo drops RUSTUP_HOME/PATH, and root has no default
-# toolchain configured). All privileged steps below call sudo
-# internally, so the script itself does not need to run as root.
-if [ -n "${SUDO_USER:-}" ]; then
-  # Refresh sudo timestamp to avoid prompt during re-exec
-  sudo -v
-  exec sudo -u "$SUDO_USER" env HOME="$HOME" PATH="$PATH" "$0" "$@"
+# If we are running via sudo, set up the environment to use the invoking user's
+# rustup toolchain so that cargo works. We keep running as root (so privileged
+# steps like TAP setup, SDS, Envoy, Firecracker don't need additional sudo),
+# but we set RUSTUP_HOME/CARGO_HOME/PATH to point to the user's rustup.
+if [ -n "${SUDO_USER:-}" ] && [ "$(id -u)" -eq 0 ]; then
+  # Determine the invoking user's home directory
+  if [ -n "${SUDO_USER}" ]; then
+    USER_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+    if [ -z "$USER_HOME" ]; then
+      # Fallback (should not happen on normal systems)
+      USER_HOME="/home/$SUDO_USER"
+    fi
+  else
+    USER_HOME="$HOME"
+  fi
+  export RUSTUP_HOME="${USER_HOME}/.rustup"
+  export CARGO_HOME="${USER_HOME}/.cargo"
+  export PATH="${USER_HOME}/.cargo/bin:$PATH"
 fi
 
 # Keep sudo timestamp alive to avoid multiple password prompts
 sudo -v
-while true; do sudo -n true; sleep 60; done &
+while true; do sudo -n true; sleep 10; done &
 SUDO_LOOP_PID=$!
 trap "kill $SUDO_LOOP_PID 2>/dev/null" INT TERM EXIT
 
@@ -66,7 +76,7 @@ fi
 
 # 1. Build everything
 echo "[1/5] Building all components..."
-# Run as the invoking user (sudo would lose rustup toolchain config).
+# Run as root but with user's rustup toolchain configured above.
 make all
 
 # 2. Set up TAP networking
@@ -76,9 +86,9 @@ sudo network/setup-tap.sh
 # 3. Start the SDS server (background)
 echo "[3/5] Starting SDS cert signing daemon..."
 cd proxy/sds-server
-CA_CERT_PATH="${SCRIPT_DIR}/certs/ca/egress-gateway-ca-production.pem" \
-CA_KEY_PATH="${SCRIPT_DIR}/certs/ca/egress-ca.key" \
-SDS_SOCKET_PATH=/var/run/envoy-sds.sock \
+CA_CERT_PATH="${SCRIPT_DIR}/certs/ca/egress-gateway-ca-production.pem"
+CA_KEY_PATH="${SCRIPT_DIR}/certs/ca/egress-ca.key"
+SDS_SOCKET_PATH=/var/run/envoy-sds.sock
   sudo -E ./sds-server &
 SDS_PID=$!
 cd "${SCRIPT_DIR}"
