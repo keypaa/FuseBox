@@ -99,6 +99,15 @@ func main() {
 	keyPath := os.Getenv("CA_KEY_PATH")
 	socketPath := os.Getenv("SDS_SOCKET_PATH")
 
+	// CLI args override env vars: <cert-path> <key-path> <socket-path>
+	if len(os.Args) > 2 {
+		certPath = os.Args[1]
+		keyPath = os.Args[2]
+	}
+	if len(os.Args) > 3 {
+		socketPath = os.Args[3]
+	}
+
 	if certPath == "" {
 		certPath = "/opt/fusebox/certs/ca/egress-gateway-ca-production.pem"
 	}

@@ -92,7 +92,7 @@ cd proxy/sds-server
 CA_CERT_PATH="${SCRIPT_DIR}/certs/ca/egress-gateway-ca-production.pem"
 CA_KEY_PATH="${SCRIPT_DIR}/certs/ca/egress-ca.key"
 SDS_SOCKET_PATH=/var/run/envoy-sds.sock
-  sudo -E ./sds-server &
+  sudo -E ./sds-server "${CA_CERT_PATH}" "${CA_KEY_PATH}" /var/run/envoy-sds.sock &
 SDS_PID=$!
 cd "${SCRIPT_DIR}"
 
