@@ -58,6 +58,9 @@ fi
 if ! pacman -Qs musl >/dev/null 2>&1; then
   PKGS="$PKGS musl"
 fi
+if ! pacman -Qs util-linux >/dev/null 2>&1; then
+  PKGS="$PKGS util-linux"
+fi
 if [ -n "${MISSING:-}" ]; then
   echo "ERROR: missing commands that can't be auto-installed:$MISSING"
   echo "  Install them manually (e.g., rustup, go) and re-run."
