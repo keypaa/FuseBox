@@ -2,14 +2,14 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-COMBINED="${SCRIPT_DIR}/../../all-skills-combined.md"
+COMBINED="${SCRIPT_DIR}/../../docs/history/all-skills-combined.md"
 
 export COMBINED_DIR="${SCRIPT_DIR}"
 
 python3 << 'PYEOF'
 import re, os
 
-combined_path = os.path.join(os.environ["COMBINED_DIR"], "..", "..", "all-skills-combined.md")
+combined_path = os.path.join(os.environ["COMBINED_DIR"], "..", "..", "docs", "history", "all-skills-combined.md")
 combined_path = os.path.abspath(combined_path)
 script_dir = os.environ["COMBINED_DIR"]
 
