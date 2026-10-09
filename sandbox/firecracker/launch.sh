@@ -41,6 +41,12 @@ for i in $(seq 1 10); do
     sleep 0.5
 done
 
+# Firecracker runs as root (via sudo), so the API socket is root-owned.
+# Chown it to the invoking user so snapshot/monitor scripts don't need sudo.
+if [ -n "${SUDO_USER:-}" ] && [ -S "${FC_SOCKET}" ]; then
+    chown "${SUDO_USER}" "${FC_SOCKET}" 2>/dev/null || true
+fi
+
 echo "==> Configuring VM via API..."
 # Set boot source
 curl --fail-with-body --silent --show-error --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/boot-source' \
