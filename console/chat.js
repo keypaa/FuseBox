@@ -587,16 +587,17 @@ window.Chat = (() => {
       } else {
         renderMsg(reply);
       }
-      const group = document.createElement("div");
-      group.className = "tool-group";
+      const turn = document.createElement("div");
+      turn.className = "tool-turn";
       const groupLabel = document.createElement("span");
       groupLabel.className = "tg-label";
-      group.appendChild(groupLabel);
-      chatcol.appendChild(group);
-      const paintGroup = (n) => { groupLabel.textContent = n === 1 ? "Ran a command" : `Ran ${n} commands`; };
-      paintGroup(toolCalls.length);
-      group.addEventListener("click", () => group.classList.toggle("collapsed"));
-      const cards = [];
+      groupLabel.textContent = toolCalls.length === 1 ? "Ran a command" : `Ran ${toolCalls.length} commands`;
+      turn.appendChild(groupLabel);
+      chatcol.appendChild(turn);
+      turn.addEventListener("click", (ev) => {
+        if (ev.target.closest(".tc-copy")) return;
+        turn.classList.toggle("collapsed");
+      });
       let done = 0;
       for (const call of toolCalls) {
         if (abortFlag) break;
@@ -605,9 +606,7 @@ window.Chat = (() => {
         const name = call.function.name;
 
         const card = toolCard(call);
-        chatcol.appendChild(card.el);
-        cards.push(card.el);
-        if (done === 0) card.el.classList.add("open");
+        turn.appendChild(card.el);
         setToolRunning(card);
         scrollBottom();
 
@@ -636,6 +635,7 @@ window.Chat = (() => {
         messages.push(resultMsg);
         persist();
         scrollBottom();
+        if (done === 0) card.el.classList.add("open");
         done++;
         card.footTime.textContent = window.relTime ? window.relTime(Date.now()) : "just now";
       }
