@@ -87,16 +87,22 @@ against the single locked model.
 - `console/.env` holds `OPENROUTER_API_KEY=…` (gitignored; add
   `console/.env.example` with empty key). ⚙ settings drops the key input —
   shows readonly `key: server (.env)`; keeps base URL (default same-origin),
-  model (default `inclusionai/ling-3.1-flash`), system prompt, plus a small
-  `Max tokens` number input (default 4096, range 1024–8192).
-- Request: single model only — **delete `FALLBACK_MODELS`**, send explicit
-  `max_tokens: 4096` + `temperature: 0.4` + unchanged `TOOLS_SCHEMA`.
+  model (default `inclusionai/ling-3.1-flash`), system prompt. No max-tokens
+  control: the request omits `max_tokens` so the model uses its full default
+  context (262K).
+- Request: single model only — **delete `FALLBACK_MODELS`** (the 402 in the
+  reported screenshot almost certainly came from a paid fallback, not the free
+  primary: `providerComplete` throws 402 immediately, and the screenshot shows
+  a `rate-limited, trying next…` toast first, so the 402 was raised by
+  `google/gemini-2.5-flash-lite` or later in the chain). Send **no `max_tokens`**
+  (full 262K default context), `temperature: 0.4`, unchanged `TOOLS_SCHEMA`.
+  Every model error toast/card names the model that actually failed.
 - 402 repro (same model only, never another): `server.py --log-bodies`
-  records redacted request size/token estimate to confirm the 65535 came from
-  the missing `max_tokens` (OpenRouter defaulting to full window) vs account
-  state. The model is free with 262k context per the user; if the slug turns
-  out to need a `:free` suffix or anything else that invalidates the current
-  model id, **stop and ask the user** before changing it.
+  records redacted request size to confirm the failure moves with the fallback
+  removal. Also check the key's own spending limit at OpenRouter → Settings →
+  Keys (a capped key fails even with account credit left). If evidence shows
+  the free slug itself 402s for a reason that invalidates the current model
+  id, **stop and ask the user** before changing anything.
 
 ## Data flow
 Browser → `POST /api/chat` (same origin, no key) → `server.py` injects key
@@ -117,5 +123,5 @@ History persists to `fusebox.history` / `fusebox.chat` as today.
 ## Slices (for the plan)
 1. §1 layout CSS + `.who` removal. 2. §2 tool grouping + card CSS.
 3. §3 sidebar titles/search/delete. 4. §4 composer footer.
-5. §5 error cards + `Go back`/`Try again`. 6. `server.py` + `.env` + single-model
-   `max_tokens` + 402 repro log. Each slice ends green on tests + screenshot.
+5. §5 error cards + `Go back`/`Try again`. 6. `server.py` + `.env` + fallback
+   removal (no `max_tokens` cap) + 402 repro log. Each slice ends green on tests + screenshot.
