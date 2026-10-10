@@ -494,11 +494,16 @@ window.Chat = (() => {
       </div>
       <div class="tc-body">
         <div class="tc-args"><pre>${esc(JSON.stringify(args, null, 2))}</pre></div>
+        <div class="tc-out-label">Output</div>
         <div class="tc-out"><pre></pre></div>
-        <div class="tc-rc"></div>
+        <div class="tc-foot"><span class="tc-rc"></span><span class="tc-act"><button type="button" class="tc-copy">copy</button><span class="tc-time"></span></span></div>
       </div>`;
     el.querySelector(".tc-head").addEventListener("click", () => el.classList.toggle("open"));
-    return { el, outPre: el.querySelector(".tc-out pre"), rcEl: el.querySelector(".tc-rc") };
+    el.querySelector(".tc-copy").addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      navigator.clipboard?.writeText(el.querySelector(".tc-out pre").textContent ?? "").catch(() => {});
+    });
+    return { el, outPre: el.querySelector(".tc-out pre"), rcEl: el.querySelector(".tc-rc"), footTime: el.querySelector(".tc-time") };
   }
 
   function setToolRunning(card) {
@@ -577,7 +582,22 @@ window.Chat = (() => {
         return;
       }
 
-      renderMsg(reply);
+      if (toolCalls.length && !(typeof reply.content === "string" && reply.content.trim())) {
+        // pure tool-call round: the group header below stands in for it
+      } else {
+        renderMsg(reply);
+      }
+      const group = document.createElement("div");
+      group.className = "tool-group";
+      const groupLabel = document.createElement("span");
+      groupLabel.className = "tg-label";
+      group.appendChild(groupLabel);
+      chatcol.appendChild(group);
+      const paintGroup = (n) => { groupLabel.textContent = n === 1 ? "Ran a command" : `Ran ${n} commands`; };
+      paintGroup(toolCalls.length);
+      group.addEventListener("click", () => group.classList.toggle("collapsed"));
+      const cards = [];
+      let done = 0;
       for (const call of toolCalls) {
         if (abortFlag) break;
         let args = {};
@@ -586,6 +606,8 @@ window.Chat = (() => {
 
         const card = toolCard(call);
         chatcol.appendChild(card.el);
+        cards.push(card.el);
+        if (done === 0) card.el.classList.add("open");
         setToolRunning(card);
         scrollBottom();
 
@@ -614,6 +636,8 @@ window.Chat = (() => {
         messages.push(resultMsg);
         persist();
         scrollBottom();
+        done++;
+        card.footTime.textContent = window.relTime ? window.relTime(Date.now()) : "just now";
       }
     }
   }

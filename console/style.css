@@ -275,3 +275,12 @@ button.icon { padding: 6px 9px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--line-0); border-radius: 5px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--line-1); }
+.tool-group { margin: 10px 0 2px; color: var(--fg-2); font-size: 13px; cursor: pointer; user-select: none; }
+.tool-group .tg-label::after { content: " ⌄"; font-size: 11px; }
+.tool-group.collapsed .tg-label::after { content: " ›"; }
+.tool-group.collapsed ~ .tool-card { display: none; }
+.tool-card .tc-out-label { padding: 8px 12px 0; font-size: 11px; color: var(--fg-2); font-family: var(--sans); }
+.tool-card .tc-foot { display: flex; align-items: center; padding: 6px 12px 9px; font-size: 11px; color: var(--fg-2); }
+.tool-card .tc-foot .tc-act { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.tool-card .tc-copy { background: transparent; border: 1px solid var(--line-1); color: var(--fg-2); font-size: 11px; padding: 2px 8px; }
+.tool-card .tc-copy:hover { color: var(--fg-0); border-color: var(--coral); }
