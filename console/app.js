@@ -51,6 +51,8 @@ function setStatus(mode, label) {
   for (const el of document.querySelectorAll(".js-dot")) el.className = `dot ${mode}`;
   for (const el of document.querySelectorAll(".js-status")) el.textContent = label;
   if (termOverlay) termOverlay.classList.toggle("hidden", mode === "on");
+  const sessionsChip = $("sessions");
+  if (sessionsChip) sessionsChip.style.display = mode === "on" ? "" : "none";
   document.title = mode === "on" ? "fuseconsole-connected" : "fuseconsole-ready";
 }
 function termNotice(text, color) {
@@ -132,18 +134,7 @@ function apiBase() {
 }
 
 /* ------------------------------ files panel ----------------------------- */
-const FILE_ICONS = [
-  [/\.(png|jpe?g|gif|svg|webp|bmp|ico)$/i, "🖼️"],
-  [/\.(pdf)$/i, "📕"],
-  [/\.(docx?|odt|rtf)$/i, "📘"],
-  [/\.(xlsx?|csv|ods)$/i, "📊"],
-  [/\.(pptx?|odp)$/i, "📽️"],
-  [/\.(zip|tar|gz|xz|zst|7z|bz2)$/i, "📦"],
-  [/\.(mp3|wav|ogg|flac)$/i, "🎵"],
-  [/\.(mp4|mkv|webm|mov)$/i, "🎬"],
-  [/\.(js|mjs|ts|py|rs|sh|c|h|cpp|json|ya?ml|toml|html|css|md)$/i, "🧩"],
-];
-function iconFor(name) { return (FILE_ICONS.find(([re]) => re.test(name)) ?? [null, "📄"])[1]; }
+function iconFor(name) { return ""; }
 function formatSize(n) {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} K`;
@@ -171,7 +162,7 @@ async function refreshFiles() {
     for (const entry of data.entries) {
       const li = document.createElement("li");
       li.innerHTML = `<span class="fico"></span><span class="fname"></span><span class="fsize"></span>`;
-      li.querySelector(".fico").textContent = entry.is_dir ? "📁" : iconFor(entry.name);
+      li.querySelector(".fico").textContent = "";
       li.querySelector(".fname").textContent = entry.name;
       li.querySelector(".fsize").textContent = entry.is_dir ? "" : formatSize(entry.size);
       if (!entry.is_dir) {
@@ -188,7 +179,7 @@ async function refreshFiles() {
 function downloadURL(path) { return `${apiBase()}/files/download?path=${encodeURIComponent(path)}`; }
 function uploadFile(file) {
   const target = `${filesdirEl.value}/${file.name}`;
-  const el = toast(`⇧ ${file.name}`, "info", 0);
+  const el = toast(`Uploading ${file.name}`, "info", 0);
   const bar = document.createElement("div");
   bar.className = "progress"; bar.innerHTML = "<i></i>";
   el.appendChild(bar);
@@ -202,15 +193,15 @@ function uploadFile(file) {
     xhr.onload = () => {
       el.remove();
       if (xhr.status >= 200 && xhr.status < 300) {
-        toast(`✓ ${file.name} uploaded → ${filesdirEl.value}`, "ok", 3000);
+        toast(`${file.name} uploaded to ${filesdirEl.value}`, "ok", 3000);
       } else {
         let msg = `status ${xhr.status}`;
         try { msg = JSON.parse(xhr.responseText).error ?? msg; } catch {}
-        toast(`✗ ${file.name}: ${msg}`, "err", 5000);
+        toast(`${file.name}: ${msg}`, "err", 5000);
       }
       refreshFiles(); resolve();
     };
-    xhr.onerror = () => { el.remove(); toast(`✗ ${file.name}: upload failed`, "err", 5000); resolve(); };
+    xhr.onerror = () => { el.remove(); toast(`${file.name}: upload failed`, "err", 5000); resolve(); };
     xhr.send(file);
   });
 }
@@ -266,6 +257,8 @@ window.ConsoleAPI.setMdRenderer = (fn) => { window.__mdRender = fn; };
 connectBtn.addEventListener("click", connect);
 $("drawer-terminal")?.addEventListener("click", () => toggleDrawer("terminal"));
 $("drawer-files")?.addEventListener("click", () => toggleDrawer("files"));
+$("open-terminal")?.addEventListener("click", () => toggleDrawer("terminal"));
+$("open-files")?.addEventListener("click", () => toggleDrawer("files"));
 $("drawer-close")?.addEventListener("click", closeDrawer);
 for (const b of devDrawer.querySelectorAll(".tab")) b.addEventListener("click", () => openDrawer(b.dataset.tab));
 $("refresh").addEventListener("click", refreshFiles);
@@ -288,7 +281,7 @@ const sessionsEl = $("sessions");
 async function pollSessions() {
   const sessionsEl = $("sessions");
   if (!sessionsEl) return;
-  if (!connected) { sessionsEl.textContent = "–"; return; }
+  if (!connected) { return; }
   try {
     const data = await fetch(`${apiBase()}/sessions`).then((r) => r.json());
     const n = Array.isArray(data.sessions) ? data.sessions.length : null;
@@ -366,7 +359,3 @@ const savedDir = localStorage.getItem("fusebox.filesdir");
 if (savedDir) ensureDirOption(savedDir);
 setStatus("off", "disconnected");
 renderHistory();
-if (!localStorage.getItem("fusebox.seen")) {
-  localStorage.setItem("fusebox.seen", "1");
-  setTimeout(() => openDrawer("terminal"), 400);
-}
