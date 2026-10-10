@@ -306,7 +306,11 @@ window.Chat = (() => {
     });
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
-      throw new Error(`${res.status} ${detail.slice(0, 300)}`);
+      const msg = `${res.status} ${detail.slice(0, 300)}`;
+      if (res.status === 401 && !settings.key) {
+        throw new Error("no API key set — open ⚙ and paste your OpenRouter key");
+      }
+      throw new Error(msg);
     }
     if (!stream || !res.body) {
       const data = await res.json();

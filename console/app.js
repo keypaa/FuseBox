@@ -254,9 +254,9 @@ window.ConsoleAPI.setMdRenderer = (fn) => { window.__mdRender = fn; };
 
 /* ------------------------------- wiring --------------------------------- */
 connectBtn.addEventListener("click", connect);
-$("drawer-terminal").addEventListener("click", () => toggleDrawer("terminal"));
-$("drawer-files").addEventListener("click", () => toggleDrawer("files"));
-$("drawer-close").addEventListener("click", closeDrawer);
+$("drawer-terminal")?.addEventListener("click", () => toggleDrawer("terminal"));
+$("drawer-files")?.addEventListener("click", () => toggleDrawer("files"));
+$("drawer-close")?.addEventListener("click", closeDrawer);
 for (const b of devDrawer.querySelectorAll(".tab")) b.addEventListener("click", () => openDrawer(b.dataset.tab));
 $("refresh").addEventListener("click", refreshFiles);
 filesdirEl.addEventListener("change", () => { localStorage.setItem("fusebox.filesdir", filesdirEl.value); refreshFiles(); });
