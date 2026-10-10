@@ -10,21 +10,22 @@ mkdir -p "${SNAPSHOT_DIR}"
 # Firecracker runs as root (via sudo), so its API socket is root-owned.
 # Use sudo for the API calls unless we can already reach the socket as the
 # current user (e.g. launch.sh chowned it).
-if [ "$(id -u)" -ne 0 ] && ! curl -s --max-time 1 --unix-socket "${FC_SOCKET}" http://localhost/vm >/dev/null 2>&1; then
-  SUDO_CURL="sudo curl"
-else
-  SUDO_CURL="curl"
-fi
+is_root_socket() {
+  [ "$(id -u)" -ne 0 ] && ! curl -s --max-time 1 --unix-socket "$1" http://localhost/vm >/dev/null 2>&1
+}
 
 case "${ACTION}" in
   create)
+    FC_CURL="curl"
+    is_root_socket "${FC_SOCKET}" && FC_CURL="sudo curl"
+
     echo "==> Pausing VM for snapshot..."
-    ${SUDO_CURL} --unix-socket "${FC_SOCKET}" -X PATCH 'http://localhost/vm' \
+    ${FC_CURL} --unix-socket "${FC_SOCKET}" -X PATCH 'http://localhost/vm' \
       -H 'Content-Type: application/json' \
       -d '{"state":"Paused"}'
 
     echo "==> Creating full snapshot..."
-    ${SUDO_CURL} --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/snapshot/create' \
+    ${FC_CURL} --unix-socket "${FC_SOCKET}" -X PUT 'http://localhost/snapshot/create' \
       -H 'Content-Type: application/json' \
       -d "{
         \"snapshot_type\": \"Full\",
@@ -34,7 +35,7 @@ case "${ACTION}" in
 
     echo "==> Snapshot saved to ${SNAPSHOT_DIR}/"
     echo "==> Resuming VM..."
-    ${SUDO_CURL} --unix-socket "${FC_SOCKET}" -X PATCH 'http://localhost/vm' \
+    ${FC_CURL} --unix-socket "${FC_SOCKET}" -X PATCH 'http://localhost/vm' \
       -H 'Content-Type: application/json' \
       -d '{"state":"Resumed"}'
     ;;
@@ -63,8 +64,13 @@ case "${ACTION}" in
       sleep 0.5
     done
 
+    # The restore Firecracker also runs as root, so its socket may be
+    # root-owned too — re-check before issuing the API call.
+    FC_CURL="curl"
+    is_root_socket "${FC_RESTORE_SOCKET}" && FC_CURL="sudo curl"
+
     echo "==> Loading snapshot..."
-    ${SUDO_CURL} --unix-socket "${FC_RESTORE_SOCKET}" -X PUT 'http://localhost/snapshot/load' \
+    ${FC_CURL} --unix-socket "${FC_RESTORE_SOCKET}" -X PUT 'http://localhost/snapshot/load' \
       -H 'Content-Type: application/json' \
       -d "{
         \"snapshot_path\": \"${SNAPSHOT_DIR}/vm.snapshot\",
