@@ -190,7 +190,7 @@ button.icon { padding: 6px 9px; }
 /* composer */
 .composer-zone { padding: 6px 20px 14px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .composer {
-  width: min(760px, 100%); background: var(--bg-2); border: 1px solid var(--line-1);
+  width: min(800px, 100%); background: var(--bg-2); border: 1px solid var(--line-1);
   border-radius: 18px; padding: 12px 14px 10px; transition: border-color .18s, box-shadow .18s;
 }
 .composer:focus-within { border-color: var(--coral); box-shadow: 0 0 0 3px rgba(217,119,87,.12); }
@@ -204,6 +204,12 @@ button.icon { padding: 6px 9px; }
 .send.stop { background: var(--bg-3); color: var(--danger); border: 1px solid var(--danger); }
 #modelchip { font-size: 12px; padding: 5px 12px; }
 .composer-note { font-size: 11.5px; color: var(--fg-2); text-align: center; }
+.composer-foot { width: min(800px, 100%); display: flex; align-items: baseline; gap: 10px; }
+.composer-foot .composer-note { flex: 1; text-align: left; font-size: 11.5px; color: var(--fg-2); }
+.modelfoot { background: transparent; border: none; color: var(--fg-2); font-size: 12px; padding: 2px 4px; }
+.modelfoot:hover { color: var(--fg-0); }
+.key-note { font-size: 12.5px; color: var(--fg-2); }
+.key-note code { font-family: var(--mono); color: var(--fg-1); }
 
 /* drawer */
 .drawer {

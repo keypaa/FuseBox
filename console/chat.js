@@ -705,17 +705,15 @@ window.Chat = (() => {
 
   function openSettings() {
     $("set-base").value = settings.baseUrl;
-    $("set-key").value = settings.key;
     $("set-model").value = settings.model;
     $("set-sys").value = settings.systemPrompt;
     $("settings").hidden = false;
   }
   $("settingsbtn").addEventListener("click", openSettings);
-  $("modelchip").addEventListener("click", openSettings);
+  $("modelfoot").addEventListener("click", openSettings);
   $("set-cancel").addEventListener("click", () => $("settings").hidden = true);
   $("set-save").addEventListener("click", () => {
     settings.baseUrl = $("set-base").value.trim() || "mock";
-    settings.key = $("set-key").value.trim();
     settings.model = $("set-model").value.trim() || (settings.baseUrl === "mock" ? "fusebox-mock" : settings.model);
     settings.systemPrompt = $("set-sys").value;
     saveSettings();
@@ -726,7 +724,9 @@ window.Chat = (() => {
   $("settings").addEventListener("click", (e) => { if (e.target === $("settings")) $("settings").hidden = true; });
 
   function updateChip() {
-    $("modelchip").textContent = settings.baseUrl === "mock" ? "⚙ mock model" : `⚙ ${settings.model}`;
+    const short = (settings.model || "").split("/").pop() || "model";
+    const foot = $("modelfoot");
+    if (foot) foot.textContent = short;
   }
 
   function dedupeTitles(list) {

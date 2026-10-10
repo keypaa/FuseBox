@@ -56,12 +56,11 @@
       <textarea id="chatin" rows="1" placeholder="Write a message…"></textarea>
       <div class="composer-row">
         <button id="attach" class="icon-btn" title="upload a file into /mnt/user-data/uploads">+</button>
-        <span class="spacer"></span>
-        <button id="modelchip" class="chip" title="model settings">⚙ model</button>
+        <span class="flex-spacer"></span>
         <button id="send" class="send" title="send (Enter)">➤</button>
       </div>
     </div>
-    <div class="composer-note">model output executes inside the FuseBox microVM · Enter sends, Shift+Enter = newline</div>
+    <div class="composer-foot"><span class="composer-note">Model output executes inside the FuseBox microVM · Enter sends, Shift+Enter = newline</span><button id="modelfoot" class="modelfoot" title="model settings">ling-3.1-flash</button></div>
   </div>
 </main>
 
@@ -112,9 +111,7 @@
              For Ollama Cloud run <code>./llm-proxy.py</code> and use
              <code>http://127.0.0.1:8078/v1</code> (browsers can’t call ollama.com directly — CORS).</small>
     </label>
-    <label>API key
-      <input id="set-key" type="password" placeholder="ollama key / sk-…   (stored in this browser only)">
-    </label>
+    <p class="key-note">API key: server (<code>console/.env</code> → <code>OPENROUTER_API_KEY</code>) — never in this browser.</p>
     <label>Model
       <input id="set-model" type="text" placeholder="gemma4:31b">
     </label>
