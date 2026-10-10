@@ -472,12 +472,14 @@ window.Chat = (() => {
     let args = {};
     try { args = JSON.parse(call.function.arguments ?? "{}"); } catch {}
     const name = call.function.name;
-    const summary = name === "run_command" ? (args.command || "").split("\n")[0].slice(0, 72)
+    const summary = name === "run_command" ? (args.command || "").split("\n")[0].slice(0, 90)
       : name === "write_file" ? `write ${args.path || "?"}`
       : name === "read_file" ? `read ${args.path || "?"}`
       : name === "list_files" ? `list ${args.path || "?"}`
       : name === "delete_file" ? `delete ${args.path || "?"}`
       : name;
+    const lang = name === "run_command" ? "bash" : name;
+    const cmdText = name === "run_command" ? (args.command || "") : summary;
 
     const el = document.createElement("div");
     el.className = "tool-card";
@@ -488,12 +490,25 @@ window.Chat = (() => {
         <span class="tc-summary">${esc(summary)}</span>
       </div>
       <div class="tc-body">
-        <div class="tc-args"><pre>${esc(JSON.stringify(args, null, 2))}</pre></div>
+        <div class="tc-lang">${esc(lang)}</div>
+        <div class="tc-cmd"><pre>${esc(cmdText)}</pre></div>
         <div class="tc-out-label">Output</div>
         <div class="tc-out"><pre></pre></div>
         <div class="tc-foot"><span class="tc-rc"></span><span class="tc-act"><button type="button" class="tc-copy">copy</button><span class="tc-time"></span></span></div>
+        <div class="tc-details">
+          <button type="button" class="tc-details-toggle">show request JSON</button>
+          <div class="tc-details-body" hidden><pre>${esc(JSON.stringify(args, null, 2))}</pre></div>
+        </div>
       </div>`;
     el.querySelector(".tc-head").addEventListener("click", () => el.classList.toggle("open"));
+    const detToggle = el.querySelector(".tc-details-toggle");
+    const detBody = el.querySelector(".tc-details-body");
+    detToggle.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const hidden = detBody.hidden;
+      detBody.hidden = !hidden;
+      detToggle.textContent = hidden ? "hide request JSON" : "show request JSON";
+    });
     el.querySelector(".tc-copy").addEventListener("click", (ev) => {
       ev.stopPropagation();
       navigator.clipboard?.writeText(el.querySelector(".tc-out pre").textContent ?? "").catch(() => {});
