@@ -17,9 +17,13 @@ console/style.css         warm-dark Claude-leaning theme (design tokens)
 console/fonts/            self-hosted fonts (no CDN)
 console/vendor/           vendored xterm.js 5.5.0 + fit addon
 console/llm-proxy.py      keyless local CORS+SSE proxy for providers that
-                          block browsers (Ollama Cloud): ./llm-proxy.py [port]
-                          [upstream]   (default 8078 → https://ollama.com)
-console/serve.sh          local static server: ./serve.sh [port]  (default 8077)
+                           block browsers (Ollama Cloud): ./llm-proxy.py [port]
+                           [upstream]   (default 8078 → https://ollama.com)
+console/server.py         static files (no-cache) + same-origin /api/chat;
+                           injects OPENROUTER_API_KEY from console/.env
+                           server-side, streams SSE through
+console/.env.example      template for console/.env (never committed)
+console/serve.sh          serve via server.py: ./serve.sh [port]  (default 8077)
 console/test/smoke.mjs    Node ≥22 wire-protocol regression (no browser)
 console/test/chat-e2e.mjs headless-Chrome end-to-end: chat → tool call → PTY →
                           summary + Control-API file check + screenshot;
@@ -45,26 +49,44 @@ xdg-open console/index.html          # default endpoint ws://192.0.2.2:2024
 
 - `?ws=ws://host:port` overrides the endpoint (dev harnesses); the value
   persists in localStorage.
-- **Model**: ⚙ in the header opens settings — provider base URL (`mock`
-  needs no key), API key (stored only in this browser), model name, system
-  prompt. The chip next to the composer shows the active model.
+- **Model**: ⚙ in the header opens settings — provider base URL (empty =
+  same-origin `/api/chat` relay, `mock` needs no key, absolute `http(s)` URL
+  posts direct from the browser), model name (single locked model
+  `inclusionai/ling-3.1-flash`), system prompt. The API key lives only in
+  `console/.env` (`OPENROUTER_API_KEY`, read by `server.py`) — never in this
+  browser. The chip next to the composer shows the active model.
 - The assistant's `run_command` tool executes inside the connected PTY;
   output streams into the transcript and the terminal drawer simultaneously.
 - Files created under `/mnt/user-data/outputs` appear in the Files drawer;
   click a file to preview it, or drop files anywhere on the drawer to upload.
 
-## Real models (Ollama Cloud example)
+## Real models (OpenRouter via the same-origin relay)
 
-Browsers cannot call `ollama.com` directly (no CORS headers), so run the
-keyless local proxy and point the console at it:
+The browser never sees the key. Put it in `console/.env` and serve with
+`server.py` (which injects `Authorization: Bearer <key>` server-side and
+streams the SSE reply through):
+
+```bash
+cp console/.env.example console/.env   # then paste your key after OPENROUTER_API_KEY=
+./console/serve.sh                     # → http://localhost:8077/
+```
+
+Leave the base URL empty in ⚙ settings so chat goes through `/api/chat`.
+Single locked model: `inclusionai/ling-3.1-flash`. Requests never send
+`max_tokens` (the provider's 262K default applies). If a 402 recurs, check
+OpenRouter → Settings → Keys for a per-key spending limit.
+
+Browsers cannot call `ollama.com` directly (no CORS headers), so to use
+Ollama Cloud instead run the keyless local proxy and point the console at
+it with an absolute base URL (direct-from-browser mode):
 
 ```bash
 ./console/llm-proxy.py                # → http://127.0.0.1:8078 → ollama.com
 ```
 
-Then in ⚙ settings: base URL `http://127.0.0.1:8078/v1`, your Ollama key,
-model e.g. `gemma4:31b`. The key is attached per-request by the browser and
-never stored anywhere but this browser. Responses stream token-by-token;
+Then in ⚙ settings: base URL `http://127.0.0.1:8078/v1`, your Ollama key.
+The key is attached per-request by the browser only in this direct mode.
+Responses stream token-by-token;
 the stop button aborts mid-stream. Any other OpenAI-compatible endpoint
 works too (OpenAI, OpenRouter, local Ollama via `http://127.0.0.1:11434/v1`).
 

@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# Serve the console locally (the page also works straight from file://,
-# this just gives it a stable origin). Usage: ./serve.sh [port]
+# Serve the console + same-origin /api/chat (key injected server-side from console/.env).
 set -euo pipefail
 PORT="${1:-8077}"
 DIR="$(cd "$(dirname "$0")" && pwd)"
 echo "==> FuseBox console: http://localhost:${PORT}/  (Ctrl-C to stop)"
-exec python3 -m http.server "$PORT" --bind 127.0.0.1 --directory "$DIR"
+exec python3 "$DIR/server.py" "$PORT"

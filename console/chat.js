@@ -240,18 +240,11 @@ window.Chat = (() => {
     "result, continue the task — don't ask permission to proceed.";
 
   const DEFAULT_SETTINGS = {
-    baseUrl: "https://openrouter.ai/api/v1",
+    baseUrl: "",
     key: "",
     model: "inclusionai/ling-3.1-flash",
     systemPrompt: DEFAULT_SYSTEM_PROMPT,
   };
-
-  // Fallback models tried when the primary is rate-limited (429) or unavailable.
-  const FALLBACK_MODELS = [
-    "google/gemini-2.5-flash-lite",
-    "openai/gpt-4o-mini",
-    "google/gemini-2.5-flash",
-  ];
 
   function loadSettings() {
     try { return { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem("fusebox.api") ?? "{}") }; }
@@ -273,42 +266,43 @@ window.Chat = (() => {
 
     if (settings.baseUrl === "mock") return mockComplete(payloadMessages);
 
-    const models = [settings.model, ...FALLBACK_MODELS.filter((m) => m !== settings.model)];
-    let lastErr = null;
-    for (const model of models) {
-      try {
-        return await providerCompleteModel(model, payloadMessages, onDelta);
-      } catch (e) {
-        lastErr = e;
-        // only retry on rate-limit / upstream errors, not auth failures
-        if (!/429|502|503|504|upstream|rate/i.test(e.message)) throw e;
-        toast(`model ${model} rate-limited, trying next…`, "warn", 2000);
-      }
-    }
-    throw lastErr ?? new Error("no models available");
-  }
-
-  async function providerCompleteModel(model, payloadMessages, onDelta) {
+    // Single model only — no fallback substitution, ever.
     const stream = settings.stream !== false;
-    const res = await fetch(settings.baseUrl.replace(/\/$/, "") + "/chat/completions", {
-      method: "POST",
-      headers: {
+    const body = {
+      model: settings.model,
+      messages: payloadMessages,
+      tools: TOOLS_SCHEMA,
+      temperature: 0.4,
+      ...(stream ? { stream: true } : {}),
+    };
+
+    let url, headers;
+    if (/^https?:\/\//.test(settings.baseUrl || "")) {
+      // Legacy direct-from-browser mode: an absolute baseUrl (e.g. the
+      // FAKE_LLM_URL test harness) POSTs straight at the provider, with the
+      // browser key attached only in this mode.
+      url = settings.baseUrl.replace(/\/$/, "") + "/chat/completions";
+      headers = {
         "Content-Type": "application/json",
         ...(settings.key ? { Authorization: `Bearer ${settings.key}` } : {}),
-      },
-      body: JSON.stringify({
-        model: model,
-        messages: payloadMessages,
-        tools: TOOLS_SCHEMA,
-        temperature: 0.4,
-        ...(stream ? { stream: true } : {}),
-      }),
+      };
+    } else {
+      // Default: same-origin relay — server.py injects the key server-side,
+      // so the browser never sends (or sees) one. No max_tokens in the body.
+      url = "/api/chat";
+      headers = { "Content-Type": "application/json" };
+    }
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
     });
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
       const msg = `${res.status} ${detail.slice(0, 300)}`;
       if (res.status === 401 && !settings.key) {
-        throw new Error("no API key set — open ⚙ and paste your OpenRouter key");
+        throw new Error("model endpoint unauthorized — check OPENROUTER_API_KEY in console/.env");
       }
       throw new Error(msg);
     }

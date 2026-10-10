@@ -41,3 +41,6 @@ sandbox/process_api/src/bin/steps.rs
 zenno/traces/
 zenno/telemetry/
 zenno/graph/
+
+# OpenRouter key for console/server.py — never commit.
+console/.env
