@@ -46,11 +46,12 @@ case "${ACTION}" in
 
     # A running Firecracker holds fc-tap0's TUN fd ("Resource busy" on attach).
     # Kill any stale instance so the restored VM can bind the network.
+    # Firecracker runs as root, so the kill needs sudo.
     if pgrep -x firecracker >/dev/null 2>&1; then
       echo "==> Killing stale Firecracker instance(s) to free fc-tap0..."
-      pkill -x firecracker || true
+      sudo pkill -x firecracker || true
       sleep 1
-      pkill -9 -x firecracker 2>/dev/null || true
+      sudo pkill -9 -x firecracker 2>/dev/null || true
     fi
 
     echo "==> Starting Firecracker for restore..."
