@@ -43,7 +43,9 @@ case "${ACTION}" in
   restore)
     FC_RESTORE_SOCKET="/tmp/fusebox-fc-restore.sock"
     FC_BINARY="$(cd "$(dirname "$0")" && pwd)/firecracker"
-    rm -f "${FC_RESTORE_SOCKET}"
+    # The socket may be root-owned from a previous failed restore, so use sudo
+    # for cleanup when the plain rm fails.
+    rm -f "${FC_RESTORE_SOCKET}" 2>/dev/null || sudo rm -f "${FC_RESTORE_SOCKET}" 2>/dev/null || true
 
     # A running Firecracker holds fc-tap0's TUN fd ("Resource busy" on attach).
     # Kill any stale instance so the restored VM can bind the network.
