@@ -12,27 +12,26 @@
 </head>
 <body>
 
-<!-- ============================ top bar ============================ -->
-<header class="topbar">
-  <div class="brand">
-    <span class="brand-mark">✳</span>
-    <span class="brand-name">FuseConsole</span>
+<!-- ============================ sidebar ============================ -->
+<aside class="sidebar">
+  <div class="side-top">
+    <div class="brand">
+      <span class="brand-mark">✳</span>
+      <span class="brand-name">FuseConsole</span>
+    </div>
+    <button id="newchat" class="newchat-btn" title="new conversation">
+      <span>✎</span> New chat
+    </button>
   </div>
-  <div class="top-status">
-    <span id="dot" class="dot"></span>
-    <span id="status">disconnected</span>
+  <div id="history" class="history"></div>
+  <div class="side-bottom">
+    <button id="settingsbtn" class="ghost side-btn" title="settings">⚙ Settings</button>
+    <span id="sessions" class="chip side-chip" title="active shell sessions">–</span>
   </div>
-  <div class="top-actions">
-    <span id="sessions" class="chip" title="active shell sessions">–</span>
-    <button id="drawer-terminal" class="ghost" title="toggle terminal drawer">▮▮ Terminal</button>
-    <button id="drawer-files" class="ghost" title="toggle files drawer">▤ Files</button>
-    <button id="newchat" class="ghost" title="start a new conversation">＋ New chat</button>
-    <button id="settingsbtn" class="ghost icon" title="settings">⚙</button>
-  </div>
-</header>
+</aside>
 
-<!-- ============================ chat ============================ -->
-<main id="chatwrap">
+<!-- ============================ main ============================ -->
+<main id="main">
   <div id="chatscroll">
     <div id="chatcol">
       <div id="emptystate" class="empty-state">
@@ -56,7 +55,7 @@
       <textarea id="chatin" rows="1" placeholder="Write a message…"></textarea>
       <div class="composer-row">
         <button id="attach" class="icon-btn" title="upload a file into /mnt/user-data/uploads">+</button>
-      <span class="spacer"></span>
+        <span class="spacer"></span>
         <button id="modelchip" class="chip" title="model settings">⚙ model</button>
         <button id="send" class="send" title="send (Enter)">➤</button>
       </div>
@@ -65,7 +64,7 @@
   </div>
 </main>
 
-<!-- ======================= dev drawers (right) ======================= -->
+<!-- ======================= dev drawer (right) ======================= -->
 <aside id="devdrawer" class="drawer">
   <div class="drawer-tabs">
     <button data-tab="terminal" class="tab active">Terminal</button>
@@ -119,7 +118,7 @@
       <input id="set-model" type="text" placeholder="gemma4:31b">
     </label>
     <label>System prompt
-      <textarea id="set-sys" rows="4"></textarea>
+      <textarea id="set-sys" rows="6"></textarea>
     </label>
     <div class="modal-actions">
       <button id="set-cancel" class="ghost">Cancel</button>
