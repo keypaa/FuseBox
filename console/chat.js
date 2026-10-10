@@ -418,9 +418,6 @@ window.Chat = (() => {
     // assistant
     const w = document.createElement("div");
     w.className = "msg assistant";
-    const who = document.createElement("div");
-    who.className = "who";
-    who.innerHTML = `<span class="avatar">✳</span><span class="name">assistant</span>`;
     const b = document.createElement("div");
     b.className = "bubble md";
     const body = typeof msg.content === "string" ? msg.content : "";
@@ -430,7 +427,7 @@ window.Chat = (() => {
     } else {
       b.innerHTML = window.__mdRender ? window.__mdRender(body) : md(body);
     }
-    w.append(who, b);
+    w.append(b);
     return w;
   }
 
@@ -548,7 +545,6 @@ window.Chat = (() => {
       const live = document.createElement("div");
       live.className = "msg assistant streaming";
       live.innerHTML =
-        `<div class="who"><span class="avatar">✳</span><span class="name">assistant</span></div>` +
         `<div class="bubble md"><span class="thinking"><i></i><i></i><i></i></span></div>`;
       emptystate.hidden = true;
       chatcol.appendChild(live);
