@@ -87,15 +87,22 @@ if (process.env.FAKE_LLM_URL) {
   await sleep(1800);
 }
 
-// point the files panel somewhere real, then connect the PTY
-await evalJs(`(function(){
-  localStorage.setItem("fusebox.filesdir", "/mnt/user-data/outputs");
-  const s = document.getElementById("filesdir");
-  s.value = "/mnt/user-data/outputs";
-  document.getElementById("connect").click();
-  return "connecting";
-})()`);
-await sleep(2500);
+// boot auto-connects the PTY; wait for #status to read "connected"
+let autoStatus = "";
+for (let i = 0; i < 24; i++) {
+  await sleep(500);
+  try { autoStatus = await evalJs(`document.getElementById("status").textContent`); }
+  catch { autoStatus = ""; }
+  if (autoStatus === "connected") break;
+}
+if (autoStatus !== "connected") {
+  log(`==> CHAT E2E: FAILED — boot auto-connect never reported "connected" (status=${JSON.stringify(autoStatus)})`);
+  ws.close();
+  chrome.kill();
+  try { rmSync(profileDir, { recursive: true, force: true }); } catch {}
+  process.exit(1);
+}
+log("auto-connected: " + JSON.stringify(autoStatus));
 
 const pre = await evalJs(`({
   connected: document.getElementById("status").textContent,

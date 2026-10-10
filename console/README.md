@@ -3,11 +3,12 @@
 The console for FuseBox: a **chat-first assistant whose hands are the
 sandbox**. The model talks over any OpenAI-compatible `/chat/completions`
 endpoint (token-streamed over SSE) and acts through the live PTY session of
-the microVM; the file browser lives in a right-hand drawer.
+the microVM; files the model presents surface as inline cards in the
+transcript with a preview modal.
 Zero build, vendored deps, works offline.
 
 ```
-console/index.html        page shell (chat column + drawers + modals)
+console/index.html        page shell (chat column + modals)
 console/app.js            protocol glue: WS 2024 PTY relay, HTTP 2025 file plane,
                           ConsoleAPI bridge shared with chat.js
 console/chat.js           chat layer: settings, mini-markdown renderer,
@@ -31,7 +32,6 @@ console/test/chat-e2e.mjs headless-Chrome end-to-end: chat → tool call → PTY
 console/test/sse-mock.py  fake streaming OpenAI endpoint (deltas + fragmented
                           tool_calls) — tests the streaming path keyless
 console/test/screenshot.mjs      CDP screenshot driver (any page state)
-console/test/files-pane-shot.mjs CDP screenshot of the files drawer
 ```
 
 ## Use it
@@ -63,8 +63,10 @@ xdg-open console/index.html          # default endpoint ws://192.0.2.2:2024
 - The assistant's `run_command` tool executes inside the connected PTY;
   output streams into the transcript (the PTY has no visible terminal;
   bytes flow headlessly through the WebSocket output callbacks).
-- Files created under `/mnt/user-data/outputs` appear in the Files drawer;
-  click a file to preview it, or drop files anywhere on the drawer to upload.
+- Files the model creates under `/mnt/user-data/outputs` (or uploads,
+  tool_results) appear as inline cards in the transcript; click a card to
+  preview it. The console auto-connects on boot; attach (+) is the only
+  upload path, into `/mnt/user-data/uploads`.
 
 ## Real models (OpenRouter via the same-origin relay)
 

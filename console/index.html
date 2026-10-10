@@ -26,9 +26,7 @@
   <input id="hsearch" class="hsearch" placeholder="Search chats…" autocomplete="off">
   <div id="history" class="history"></div>
   <div class="side-bottom">
-    <div class="side-drawer-btns">
-      <button id="open-files" class="ghost side-tool">Files</button>
-    </div>
+    <span id="status" class="js-status" hidden></span>
     <div class="side-main-row">
     <button id="settingsbtn" class="ghost side-btn" title="settings">⚙ Settings</button>
     <span id="sessions" class="chip side-chip" title="active shell sessions">–</span>
@@ -68,35 +66,6 @@
     <div class="composer-foot"><span class="composer-note">Model output executes inside the FuseBox microVM · Enter sends, Shift+Enter = newline</span><button id="modelfoot" class="modelfoot" title="model settings">ling-3.1-flash</button></div>
   </div>
 </main>
-
-<!-- ======================= dev drawer (right) ======================= -->
-<aside id="devdrawer" class="drawer">
-  <div class="drawer-tabs">
-    <span class="drawer-title" style="font-size:13px;font-weight:600;padding:5px 4px">Files</span>
-    <span class="flex-spacer"></span>
-    <button id="drawer-close" class="ghost icon" title="close">✕</button>
-  </div>
-
-  <section class="pane active" data-pane="files">
-    <div class="pane-toolbar">
-      <span class="dot js-dot"></span>
-      <span class="js-status" id="status" style="font-size:12px;color:var(--fg-2)">disconnected</span>
-      <span class="flex-spacer"></span>
-      <button id="connect" class="primary small">Connect</button>
-    </div>
-    <div class="pane-toolbar">
-      <select id="filesdir" title="directory">
-        <option value="/mnt/user-data/outputs">outputs</option>
-        <option value="/mnt/user-data/uploads">uploads</option>
-        <option value="/mnt/user-data/tool_results">tool_results</option>
-        <option value="/mnt/filestore">filestore (ro)</option>
-      </select>
-      <button id="refresh" class="small" title="refresh">↻</button>
-    </div>
-    <ul id="filelist"><li class="empty">connect to browse</li></ul>
-    <label id="dropzone" for="chatupload">drop files here or click to upload</label>
-  </section>
-</aside>
 
 <!-- ============================ settings ============================ -->
 <div id="settings" class="modal-veil" hidden>

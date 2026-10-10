@@ -69,28 +69,34 @@ await send("Runtime.enable", {}, sessionId);
 await send("Page.navigate", { url: consoleUrl }, sessionId);
 await sleep(2500);
 
-// flip localStorage dir to a path that exists on dev hosts, then connect
+// boot auto-connects the PTY; wait for #status to read "connected"
 const evalJs = async (expression) => {
   const r = await send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true }, sessionId);
   if (r?.exceptionDetails) throw new Error(r.exceptionDetails.text ?? "eval failed");
   return r?.result?.value;
 };
 
-await evalJs(`document.getElementById("connect").click(); "clicked"`);
-log("clicked Connect, waiting for session…");
-await sleep(waitMs);
+let bootStatus = "";
+for (let i = 0; i < 24; i++) {
+  await new Promise((r) => setTimeout(r, 500));
+  try { bootStatus = await evalJs(`document.getElementById("status").textContent`); }
+  catch { bootStatus = ""; }
+  if (bootStatus === "connected") break;
+}
+log(`auto-connect status: ${JSON.stringify(bootStatus)}`);
+await sleep(Math.max(0, waitMs - 1000));
 
-// Drive the panel from inside the page and read back what it renders.
-const fileList = await evalJs(`(async () => {
-  localStorage.setItem("fusebox.filesdir", "/tmp/fusebox-smoke/outputs");
-  window.ensureDirOption("/tmp/fusebox-smoke/outputs");
-  await window.refreshFiles();
-  return {
-    dir: document.getElementById("filesdir").value,
-    list: document.getElementById("filelist").innerText,
+// No file panel anymore — read back only status/sessions, guarded so
+// missing drawer functions don't throw.
+const fileList = await evalJs(`(function(){
+  const out = {
     sessions: document.getElementById("sessions").textContent,
     status: document.getElementById("status").textContent,
   };
+  if (typeof window.refreshFiles === "function") out.refreshFiles = "still present";
+  if (typeof window.ensureDirOption === "function") out.ensureDirOption = "still present";
+  if (typeof window.openDrawer === "function") out.openDrawer = "still present";
+  return out;
 })()`);
 log("panel state: " + JSON.stringify(fileList));
 
@@ -102,7 +108,7 @@ log(`saved ${outPath}`);
 const state = await evalJs(`({
   status: document.getElementById("status").textContent,
   sessions: document.getElementById("sessions").textContent,
-  files: [...document.querySelectorAll("#filelist li")].map(li => li.textContent.trim()).slice(0, 6),
+  cards: document.querySelectorAll(".file-card").length,
 })`);
 log("page state: " + JSON.stringify(state));
 

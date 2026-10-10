@@ -237,7 +237,8 @@ window.Chat = (() => {
     "  - When a user asks you to build something, actually build it and show\n" +
     "    the working output.\n\n" +
     "Tool use: call tools whenever they move the work forward. After a tool\n" +
-    "result, continue the task — don't ask permission to proceed.";
+    "result, continue the task — don't ask permission to proceed.\n" +
+    "When you create a file or want to show one, always state its full absolute path — it becomes a clickable card.";
 
   const DEFAULT_SETTINGS = {
     baseUrl: "",
@@ -531,6 +532,68 @@ window.Chat = (() => {
     card.rcEl.className = "tc-rc err";
   }
 
+  /* --------------------------- presented files -------------------------- */
+  // Files the model presents surface ONLY as inline cards in the transcript.
+  // Nothing pops up uninvited; clicking a card opens the preview modal.
+  const WROTE_RE = /wrote (\S+) \((\d+) bytes\)/g;
+  const PRESENTED_RE = /\/mnt\/user-data\/(?:outputs|uploads|tool_results)\/\S+/g;
+
+  function cleanPath(p) {
+    return p.replace(/^["'`([]+/, "").replace(/[.,;:!?)'"`\]]+$/, "");
+  }
+
+  function presentedFiles(output) {
+    const found = [];
+    const seen = new Set();
+    const push = (p) => {
+      p = cleanPath(p);
+      if (!p.startsWith("/mnt/user-data/")) return;
+      if (seen.has(p)) return;
+      seen.add(p);
+      found.push(p);
+    };
+    if (!output) return found;
+    let m;
+    WROTE_RE.lastIndex = 0;
+    while ((m = WROTE_RE.exec(output))) push(m[1]);
+    PRESENTED_RE.lastIndex = 0;
+    while ((m = PRESENTED_RE.exec(output))) push(m[0]);
+    return found;
+  }
+
+  function extBadge(path) {
+    const base = path.split("/").pop() || "";
+    const i = base.lastIndexOf(".");
+    if (i <= 0 || i === base.length - 1) return "FILE";
+    return base.slice(i + 1).toUpperCase();
+  }
+
+  function appendFileCards(anchorEl, paths, seenTurn) {
+    const fresh = paths.filter((p) => !seenTurn.has(p));
+    if (!fresh.length) return;
+    for (const p of fresh) seenTurn.add(p);
+    const box = document.createElement("div");
+    box.className = "file-cards";
+    for (const p of fresh) {
+      const card = document.createElement("div");
+      card.className = "file-card";
+      const nm = document.createElement("span");
+      nm.className = "fc-name";
+      nm.textContent = p.split("/").pop() || p;
+      const fp = document.createElement("span");
+      fp.className = "fc-path";
+      fp.textContent = p;
+      const tp = document.createElement("span");
+      tp.className = "fc-type";
+      tp.textContent = extBadge(p);
+      card.append(nm, fp, tp);
+      card.addEventListener("click", () => previewPath(p));
+      box.appendChild(card);
+    }
+    anchorEl.after(box);
+    scrollBottom();
+  }
+
   /* ------------------------------ agent loop ---------------------------- */
 
   function setBusy(b) {
@@ -605,10 +668,11 @@ window.Chat = (() => {
       turn.appendChild(groupLabel);
       chatcol.appendChild(turn);
       turn.addEventListener("click", (ev) => {
-        if (ev.target.closest(".tc-copy")) return;
+        if (ev.target.closest(".tc-copy, .file-card")) return;
         turn.classList.toggle("collapsed");
       });
       let done = 0;
+      const seenPaths = new Set();
       for (const call of toolCalls) {
         if (abortFlag) break;
         let args = {};
@@ -634,6 +698,7 @@ window.Chat = (() => {
 
         if (err) setToolError(card, err);
         else setToolDone(card, output, rc);
+        if (!err) appendFileCards(card.el, presentedFiles(output), seenPaths);
 
         const resultMsg = {
           role: "tool",
@@ -841,8 +906,8 @@ window.Chat = (() => {
 
   const IMG_RE = /\.(png|jpe?g|gif|svg|webp|bmp|ico)$/i;
 
-  async function previewFile(name) {
-    const path = `${document.getElementById("filesdir").value}/${name}`;
+  async function previewPath(path) {
+    const name = path.split("/").pop() || path;
     $("preview-name").textContent = name;
     $("preview-download").href = ConsoleAPI.downloadURL(path);
     const body = $("preview-body");
@@ -882,7 +947,7 @@ window.Chat = (() => {
   if (window.renderHistory) window.renderHistory();
 
   return {
-    previewFile, onUploaded,
+    previewPath, onUploaded,
     getHistory: () => history,
     getCurrentId: () => currentId,
     newChat: () => { messages = []; currentId = null; newConversation(); rerenderAll(); },

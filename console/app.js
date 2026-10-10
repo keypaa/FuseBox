@@ -1,12 +1,7 @@
 "use strict";
 const $ = (id) => document.getElementById(id);
 
-const dotEl = $("dot");
 const statusEl = $("status");
-const connectBtn = $("connect");
-const filesdirEl = $("filesdir");
-const filelistEl = $("filelist");
-const devDrawer = $("devdrawer");
 const historyEl = $("history");
 
 /* ------------------------------- toasts --------------------------------- */
@@ -29,9 +24,7 @@ let ws = null, connected = false;
 const outputSubs = [];
 
 function setStatus(mode, label) {
-  if (dotEl) dotEl.className = "dot " + mode;
   if (statusEl) statusEl.textContent = label;
-  for (const el of document.querySelectorAll(".js-dot")) el.className = `dot ${mode}`;
   for (const el of document.querySelectorAll(".js-status")) el.textContent = label;
   const sessionsChip = $("sessions");
   if (sessionsChip) sessionsChip.style.display = mode === "on" ? "" : "none";
@@ -58,7 +51,6 @@ function connect() {
   ws.binaryType = "arraybuffer";
   ws.onopen = () => {
     connected = true;
-    connectBtn.textContent = "Disconnect";
     setStatus("on", "connected");
     sendResize();
     pollSessions();
@@ -83,9 +75,7 @@ function connect() {
   };
   ws.onclose = () => {
     connected = false;
-    connectBtn.textContent = "Connect";
     setStatus("off", "disconnected");
-    filelistEl.innerHTML = '<li class="empty">connect to browse</li>';
   };
   ws.onerror = () => setStatus("err", "websocket error — is the VM up?");
 }
@@ -113,52 +103,16 @@ function apiBase() {
   } catch { return ""; }
 }
 
-/* ------------------------------ files panel ----------------------------- */
-function iconFor(name) { return ""; }
+/* ------------------------------ upload ---------------------------------- */
+const UPLOAD_DIR = "/mnt/user-data/uploads";
 function formatSize(n) {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} K`;
   return `${(n / (1024 * 1024)).toFixed(1)} M`;
 }
-function ensureDirOption(v) {
-  if (!v) return;
-  if (![...filesdirEl.options].some((o) => o.value === v)) {
-    const o = document.createElement("option");
-    o.value = o.textContent = v;
-    filesdirEl.appendChild(o);
-  }
-  filesdirEl.value = v;
-}
-async function refreshFiles() {
-  if (!connected) return;
-  ensureDirOption(filesdirEl.value);
-  filelistEl.innerHTML = '<li class="empty">loading…</li>';
-  try {
-    const res = await fetch(`${apiBase()}/files/list?path=${encodeURIComponent(filesdirEl.value)}`);
-    const data = await res.json();
-    if (!Array.isArray(data.entries)) throw new Error(data.error ?? "list failed");
-    filelistEl.innerHTML = "";
-    if (data.entries.length === 0) { filelistEl.innerHTML = '<li class="empty">empty directory</li>'; return; }
-    for (const entry of data.entries) {
-      const li = document.createElement("li");
-      li.innerHTML = `<span class="fico"></span><span class="fname"></span><span class="fsize"></span>`;
-      li.querySelector(".fico").textContent = "";
-      li.querySelector(".fname").textContent = entry.name;
-      li.querySelector(".fsize").textContent = entry.is_dir ? "" : formatSize(entry.size);
-      if (!entry.is_dir) {
-        li.classList.add("file");
-        li.title = "click to preview / download";
-        li.addEventListener("click", () => window.Chat?.previewFile(entry.name));
-      }
-      filelistEl.appendChild(li);
-    }
-  } catch (e) {
-    filelistEl.innerHTML = `<li class="empty">error: ${String(e.message ?? e)}</li>`;
-  }
-}
 function downloadURL(path) { return `${apiBase()}/files/download?path=${encodeURIComponent(path)}`; }
 function uploadFile(file) {
-  const target = `${filesdirEl.value}/${file.name}`;
+  const target = `${UPLOAD_DIR}/${file.name}`;
   const el = toast(`Uploading ${file.name}`, "info", 0);
   const bar = document.createElement("div");
   bar.className = "progress"; bar.innerHTML = "<i></i>";
@@ -173,13 +127,13 @@ function uploadFile(file) {
     xhr.onload = () => {
       el.remove();
       if (xhr.status >= 200 && xhr.status < 300) {
-        toast(`${file.name} uploaded to ${filesdirEl.value}`, "ok", 3000);
+        toast(`${file.name} uploaded to ${UPLOAD_DIR}`, "ok", 3000);
       } else {
         let msg = `status ${xhr.status}`;
         try { msg = JSON.parse(xhr.responseText).error ?? msg; } catch {}
         toast(`${file.name}: ${msg}`, "err", 5000);
       }
-      refreshFiles(); resolve();
+      resolve();
     };
     xhr.onerror = () => { el.remove(); toast(`${file.name}: upload failed`, "err", 5000); resolve(); };
     xhr.send(file);
@@ -188,24 +142,6 @@ function uploadFile(file) {
 async function uploadFiles(list) {
   if (!connected) await ensureConnected().catch(() => {});
   for (const f of list) await uploadFile(f);
-}
-
-/* ------------------------------- drawers -------------------------------- */
-function openDrawer(tab) {
-  devDrawer.classList.add("open");
-  document.body.classList.add("drawer-open");
-  for (const b of devDrawer.querySelectorAll(".tab")) b.classList.toggle("active", b.dataset.tab === tab);
-  for (const p of devDrawer.querySelectorAll(".pane")) p.classList.toggle("active", p.dataset.pane === tab);
-  if (tab === "files" && connected) refreshFiles();
-}
-function closeDrawer() {
-  devDrawer.classList.remove("open");
-  document.body.classList.remove("drawer-open");
-}
-function toggleDrawer(tab) {
-  const isOpen = devDrawer.classList.contains("open");
-  const active = devDrawer.querySelector(".tab.active")?.dataset.tab;
-  if (isOpen && active === tab) closeDrawer(); else openDrawer(tab);
 }
 
 /* --------------------------- relative time ---------------------------- */
@@ -224,7 +160,6 @@ window.ConsoleAPI = {
   sendRaw: (s) => { if (ws?.readyState === WebSocket.OPEN) ws.send(s); },
   onOutput: (cb) => { outputSubs.push(cb); return () => { const i = outputSubs.indexOf(cb); if (i >= 0) outputSubs.splice(i, 1); }; },
   isConnected: () => connected, ensureConnected,
-  openTerminalDrawer: () => openDrawer("files"),
   downloadURL,
   listFiles: async (path) => { const res = await fetch(`${apiBase()}/files/list?path=${encodeURIComponent(path)}`); return res.json(); },
   fetchFile: async (path) => { const res = await fetch(downloadURL(path)); if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `HTTP ${res.status}`); return res; },
@@ -232,17 +167,6 @@ window.ConsoleAPI = {
 window.ConsoleAPI.setMdRenderer = (fn) => { window.__mdRender = fn; };
 
 /* ------------------------------- wiring --------------------------------- */
-connectBtn.addEventListener("click", connect);
-$("drawer-terminal")?.addEventListener("click", () => toggleDrawer("terminal"));
-$("drawer-files")?.addEventListener("click", () => toggleDrawer("files"));
-$("open-files")?.addEventListener("click", () => toggleDrawer("files"));
-$("drawer-close")?.addEventListener("click", closeDrawer);
-for (const b of devDrawer.querySelectorAll(".tab")) b.addEventListener("click", () => openDrawer(b.dataset.tab));
-$("refresh").addEventListener("click", refreshFiles);
-filesdirEl.addEventListener("change", () => { localStorage.setItem("fusebox.filesdir", filesdirEl.value); refreshFiles(); });
-$("dropzone").addEventListener("dragover", (e) => { e.preventDefault(); $("dropzone").classList.add("drag"); });
-$("dropzone").addEventListener("dragleave", () => $("dropzone").classList.remove("drag"));
-$("dropzone").addEventListener("drop", (e) => { e.preventDefault(); $("dropzone").classList.remove("drag"); if (e.dataTransfer?.files?.length) uploadFiles(e.dataTransfer.files); });
 $("attach").addEventListener("click", () => $("chatupload").click());
 $("chatupload").addEventListener("change", async (e) => {
   if (e.target.files?.length) {
@@ -331,7 +255,8 @@ $("settingsbtn").addEventListener("click", () => window.Chat?.openSettings());
 /* -------------------------------- boot ---------------------------------- */
 const qsWs = new URLSearchParams(location.search).get("ws");
 if (qsWs) localStorage.setItem("fusebox.wsurl", qsWs);
-const savedDir = localStorage.getItem("fusebox.filesdir");
-if (savedDir) ensureDirOption(savedDir);
 setStatus("off", "disconnected");
 renderHistory();
+// auto-connect on boot; failures stay silent (no toast/modal) —
+// runCommand's ensureConnected retries on send.
+connect();
