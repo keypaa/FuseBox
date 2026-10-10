@@ -74,6 +74,12 @@ Expected: FAIL (matches found — `chat.js` builds `.who` in `elFor` and in the 
 
 - [ ] **Step 2: Remove the `.who` header from assistant rendering**
 
+In `console/index.html`, the drawer toolbar already has `<span class="js-status" …>` but no element carries `id="status"` — yet `console/test/chat-e2e.mjs:101,126` and `console/test/screenshot.mjs:103` read `document.getElementById("status").textContent`, which throws on null and aborts both scripts. Give that span the missing id (zero visual change; `setStatus` in `console/app.js:48-55` already updates `.js-status` text):
+
+```html
+<span class="js-status" id="status" style="font-size:12px;color:var(--fg-2)">disconnected</span>
+```
+
 In `console/chat.js`, replace:
 
 ```js
@@ -146,11 +152,11 @@ git commit -m "feat(console): minimal message rows, serif assistant prose, no av
 **Files:**
 - Modify: `console/chat.js` (`toolCard`, agentLoop group header, skip tool-only intent bubble, `relTime` helper use)
 - Modify: `console/app.js` (add shared global `relTime(ts)`)
-- Modify: `console/style.css` (`.tool-group`, card polish, footer row)
+- Modify: `console/style.css` (`.tool-turn`, card polish, footer row)
 
 **Interfaces:**
 - Consumes: `toolCard()` return `{el,outPre,rcEl}`; `setToolRunning/setToolDone/setToolError` (signatures unchanged)
-- Produces: `window.relTime(ts)` global consumed by Tasks 3 and 5; `.tool-group` DOM consumed by styling only
+- Produces: `window.relTime(ts)` global consumed by Tasks 3 and 5; `.tool-turn` DOM consumed by styling only
 
 - [ ] **Step 1: Add the shared relative-time helper (failing check first)**
 
@@ -172,32 +178,29 @@ Re-run the `rg` check. Expected: PASS (matches in `app.js`).
 
 - [ ] **Step 2: Group tool cards under a collapsible summary line**
 
-In `console/chat.js` `agentLoop()`, directly before `for (const call of toolCalls) {`, insert:
+In `console/chat.js` `agentLoop()`, directly before `for (const call of toolCalls) {`, insert (cards live INSIDE the per-turn container so collapsing one turn can never hide a later turn's cards):
 
 ```js
-      const group = document.createElement("div");
-      group.className = "tool-group";
+      const turn = document.createElement("div");
+      turn.className = "tool-turn";
       const groupLabel = document.createElement("span");
       groupLabel.className = "tg-label";
-      group.appendChild(groupLabel);
-      chatcol.appendChild(group);
-      const paintGroup = (n) => { groupLabel.textContent = n === 1 ? "Ran a command" : `Ran ${n} commands`; };
-      paintGroup(toolCalls.length);
-      group.addEventListener("click", () => group.classList.toggle("collapsed"));
-      const cards = [];
+      groupLabel.textContent = toolCalls.length === 1 ? "Ran a command" : `Ran ${toolCalls.length} commands`;
+      turn.appendChild(groupLabel);
+      chatcol.appendChild(turn);
+      turn.addEventListener("click", (ev) => {
+        if (ev.target.closest(".tc-copy")) return;
+        turn.classList.toggle("collapsed");
+      });
       let done = 0;
 ```
 
-Inside the loop, after `chatcol.appendChild(card.el);`, insert:
+Inside the loop, replace `chatcol.appendChild(card.el);` with `turn.appendChild(card.el);`.
+
+And after `setToolDone`/`setToolError` (still inside the loop, after `scrollBottom();` at the end of the iteration), insert:
 
 ```js
-        cards.push(card.el);
         if (done === 0) card.el.classList.add("open");
-```
-
-and after `setToolDone`/`setToolError` (still inside the loop, after `scrollBottom();` at the end of the iteration), insert:
-
-```js
         done++;
         card.footTime.textContent = window.relTime ? window.relTime(Date.now()) : "just now";
 ```
@@ -259,10 +262,11 @@ Wire the copy button right after building `el`:
 Append:
 
 ```css
-.tool-group { margin: 10px 0 2px; color: var(--fg-2); font-size: 13px; cursor: pointer; user-select: none; }
-.tool-group .tg-label::after { content: " ⌄"; font-size: 11px; }
-.tool-group.collapsed .tg-label::after { content: " ›"; }
-.tool-group.collapsed ~ .tool-card { display: none; }
+.tool-turn { margin: 10px 0 2px; }
+.tool-turn .tg-label { color: var(--fg-2); font-size: 13px; cursor: pointer; user-select: none; }
+.tool-turn .tg-label::after { content: " ⌄"; font-size: 11px; }
+.tool-turn.collapsed .tg-label::after { content: " ›"; }
+.tool-turn.collapsed .tool-card { display: none; }
 .tool-card .tc-out-label { padding: 8px 12px 0; font-size: 11px; color: var(--fg-2); font-family: var(--sans); }
 .tool-card .tc-foot { display: flex; align-items: center; padding: 6px 12px 9px; font-size: 11px; color: var(--fg-2); }
 .tool-card .tc-foot .tc-act { margin-left: auto; display: flex; align-items: center; gap: 8px; }
