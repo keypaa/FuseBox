@@ -642,6 +642,51 @@ window.Chat = (() => {
     }
   }
 
+  function errTitle(e) {
+    const m = String(e?.message ?? e);
+    if (/401|no API key|unauthorized/i.test(m)) return "API Error: Unauthorized — check the server key";
+    if (/402|credits|afford|max_tokens/i.test(m)) return "Model request failed — the provider refused the request";
+    if (/failed to fetch|network|connect/i.test(m)) return "API Error: Connection refused — the model endpoint is unreachable";
+    return `API Error: ${m.slice(0, 120)}`;
+  }
+
+  function renderError(e) {
+    emptystate.hidden = true;
+    const el = document.createElement("div");
+    el.className = "msg err-card";
+    const t = Date.now();
+    el.innerHTML =
+      `<div class="err-title"></div>` +
+      `<div class="err-meta"><button type="button" class="err-copy" title="copy error">⧉</button><span class="err-time">${window.relTime ? window.relTime(t) : "just now"}</span></div>` +
+      `<div class="err-box"><div class="err-head">⚠ Something went wrong</div>` +
+      `<div class="err-sub">Try sending your message again. If it keeps failing, check the error details for the cause.</div>` +
+      `<div class="err-detail"></div>` +
+      `<div class="err-sub">You can restart the conversation from an earlier message.</div>` +
+      `<div class="err-actions"><button type="button" data-act="back">↩ Go back</button><button type="button" data-act="retry">↻ Try again</button></div></div>`;
+    el.querySelector(".err-title").textContent = errTitle(e);
+    el.querySelector(".err-detail").textContent = String(e?.message ?? e).slice(0, 600);
+    el.querySelector(".err-copy").addEventListener("click", () => {
+      navigator.clipboard?.writeText(String(e?.message ?? e)).catch(() => {});
+    });
+    el.querySelector('[data-act="back"]').addEventListener("click", () => {
+      const i = messages.findLastIndex((m) => m.role === "user");
+      if (i >= 0) { chatin.value = messages[i].content; messages.splice(i, 1); }
+      el.remove();
+      persist();
+      autosize();
+      chatin.focus();
+    });
+    el.querySelector('[data-act="retry"]').addEventListener("click", () => {
+      el.remove();
+      if (generating) return;
+      abortFlag = false;
+      setBusy(true);
+      agentLoop().catch((err) => renderError(err)).finally(() => { setBusy(false); saveConv(); });
+    });
+    chatcol.appendChild(el);
+    scrollBottom();
+  }
+
   /* ------------------------------- sending ------------------------------ */
 
   async function sendMessage() {
@@ -671,7 +716,7 @@ window.Chat = (() => {
         persist();
       }
       if (e?.name === "AbortError") notice("[stopped]", "33");
-      else toast(`model error: ${e.message ?? e}`, "err", 6000);
+      else { renderError(new Error(`[${settings.model}] ${e.message ?? e}`)); }
     } finally {
       setBusy(false);
       saveConv();
