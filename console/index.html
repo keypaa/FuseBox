@@ -27,7 +27,6 @@
   <div id="history" class="history"></div>
   <div class="side-bottom">
     <div class="side-drawer-btns">
-      <button id="open-terminal" class="ghost side-tool">Terminal</button>
       <button id="open-files" class="ghost side-tool">Files</button>
     </div>
     <div class="side-main-row">
@@ -73,26 +72,18 @@
 <!-- ======================= dev drawer (right) ======================= -->
 <aside id="devdrawer" class="drawer">
   <div class="drawer-tabs">
-    <button data-tab="terminal" class="tab active">Terminal</button>
-    <button data-tab="files" class="tab">Files</button>
+    <span class="drawer-title" style="font-size:13px;font-weight:600;padding:5px 4px">Files</span>
     <span class="flex-spacer"></span>
     <button id="drawer-close" class="ghost icon" title="close">✕</button>
   </div>
 
-  <section class="pane active" data-pane="terminal">
+  <section class="pane active" data-pane="files">
     <div class="pane-toolbar">
       <span class="dot js-dot"></span>
       <span class="js-status" id="status" style="font-size:12px;color:var(--fg-2)">disconnected</span>
       <span class="flex-spacer"></span>
       <button id="connect" class="primary small">Connect</button>
     </div>
-    <div id="terminal-wrap">
-      <div id="terminal"></div>
-      <div id="term-overlay"><span><span class="pulse">◉</span> not connected</span></div>
-    </div>
-  </section>
-
-  <section class="pane" data-pane="files">
     <div class="pane-toolbar">
       <select id="filesdir" title="directory">
         <option value="/mnt/user-data/outputs">outputs</option>

@@ -3,7 +3,7 @@
 The console for FuseBox: a **chat-first assistant whose hands are the
 sandbox**. The model talks over any OpenAI-compatible `/chat/completions`
 endpoint (token-streamed over SSE) and acts through the live PTY session of
-the microVM; the terminal and file browser live in a right-hand drawer.
+the microVM; the file browser lives in a right-hand drawer.
 Zero build, vendored deps, works offline.
 
 ```
@@ -61,7 +61,8 @@ xdg-open console/index.html          # default endpoint ws://192.0.2.2:2024
   mode and safe to leave. Flags like `--log-bodies` need direct
   `python3 console/server.py` invocation (`serve.sh` forwards extra flags).
 - The assistant's `run_command` tool executes inside the connected PTY;
-  output streams into the transcript and the terminal drawer simultaneously.
+  output streams into the transcript (the PTY has no visible terminal;
+  bytes flow headlessly through the WebSocket output callbacks).
 - Files created under `/mnt/user-data/outputs` appear in the Files drawer;
   click a file to preview it, or drop files anywhere on the drawer to upload.
 

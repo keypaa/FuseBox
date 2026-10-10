@@ -4,7 +4,6 @@ const $ = (id) => document.getElementById(id);
 const dotEl = $("dot");
 const statusEl = $("status");
 const connectBtn = $("connect");
-const termOverlay = $("term-overlay");
 const filesdirEl = $("filesdir");
 const filelistEl = $("filelist");
 const devDrawer = $("devdrawer");
@@ -24,24 +23,8 @@ function dismiss(el) {
   setTimeout(() => el.remove(), 320);
 }
 
-/* ------------------------------ terminal -------------------------------- */
-const term = new window.Terminal({
-  cursorBlink: true, fontSize: 13,
-  fontFamily: "'JetBrains Mono', 'Cascadia Code', ui-monospace, Menlo, monospace",
-  theme: {
-    background: "#12100e", foreground: "#e5e0d5", cursor: "#d97757",
-    cursorAccent: "#12100e", selectionBackground: "rgba(217,119,87,.25)",
-    black: "#3a3630", red: "#d08770", green: "#a3be8c", yellow: "#ebcb8b",
-    blue: "#81a1c1", magenta: "#b48ead", cyan: "#88c0d0", white: "#e5e0d5",
-    brightBlack: "#6b6459", brightRed: "#e0887a", brightGreen: "#b5ce8f",
-    brightYellow: "#f0d39b", brightBlue: "#93bcc7", brightMagenta: "#c8a2bd",
-    brightCyan: "#9fd3dc", brightWhite: "#f0eee6",
-  },
-});
-const fit = new window.FitAddon.FitAddon();
-term.loadAddon(fit);
-term.open($("terminal"));
-
+/* --------------------------- headless pty output -------------------------- */
+/* No visible terminal: PTY bytes flow to outputSubs (runCommand) only. */
 let ws = null, connected = false;
 const outputSubs = [];
 
@@ -50,21 +33,19 @@ function setStatus(mode, label) {
   if (statusEl) statusEl.textContent = label;
   for (const el of document.querySelectorAll(".js-dot")) el.className = `dot ${mode}`;
   for (const el of document.querySelectorAll(".js-status")) el.textContent = label;
-  if (termOverlay) termOverlay.classList.toggle("hidden", mode === "on");
   const sessionsChip = $("sessions");
   if (sessionsChip) sessionsChip.style.display = mode === "on" ? "" : "none";
   document.title = mode === "on" ? "fuseconsole-connected" : "fuseconsole-ready";
 }
 function termNotice(text, color) {
-  term.write(`\r\n\u001b[${color}m${text}\u001b[0m\r\n`);
+  toast(text, color === "31" ? "err" : "info", 4000);
 }
 function emitOutput(text) {
-  term.write(text);
   for (const cb of outputSubs) { try { cb(text); } catch {} }
 }
 function sendResize() {
   if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+    ws.send(JSON.stringify({ type: "resize", cols: 80, rows: 24 }));
   }
 }
 
@@ -80,7 +61,6 @@ function connect() {
     connectBtn.textContent = "Disconnect";
     setStatus("on", "connected");
     sendResize();
-    term.focus();
     pollSessions();
     window.Chat?.onConnected?.();
   };
@@ -216,13 +196,11 @@ function openDrawer(tab) {
   document.body.classList.add("drawer-open");
   for (const b of devDrawer.querySelectorAll(".tab")) b.classList.toggle("active", b.dataset.tab === tab);
   for (const p of devDrawer.querySelectorAll(".pane")) p.classList.toggle("active", p.dataset.pane === tab);
-  if (tab === "terminal") setTimeout(() => { fit.fit(); term.focus(); }, 270);
   if (tab === "files" && connected) refreshFiles();
 }
 function closeDrawer() {
   devDrawer.classList.remove("open");
   document.body.classList.remove("drawer-open");
-  setTimeout(() => fit.fit(), 260);
 }
 function toggleDrawer(tab) {
   const isOpen = devDrawer.classList.contains("open");
@@ -246,7 +224,7 @@ window.ConsoleAPI = {
   sendRaw: (s) => { if (ws?.readyState === WebSocket.OPEN) ws.send(s); },
   onOutput: (cb) => { outputSubs.push(cb); return () => { const i = outputSubs.indexOf(cb); if (i >= 0) outputSubs.splice(i, 1); }; },
   isConnected: () => connected, ensureConnected,
-  openTerminalDrawer: () => openDrawer("terminal"),
+  openTerminalDrawer: () => openDrawer("files"),
   downloadURL,
   listFiles: async (path) => { const res = await fetch(`${apiBase()}/files/list?path=${encodeURIComponent(path)}`); return res.json(); },
   fetchFile: async (path) => { const res = await fetch(downloadURL(path)); if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `HTTP ${res.status}`); return res; },
@@ -257,7 +235,6 @@ window.ConsoleAPI.setMdRenderer = (fn) => { window.__mdRender = fn; };
 connectBtn.addEventListener("click", connect);
 $("drawer-terminal")?.addEventListener("click", () => toggleDrawer("terminal"));
 $("drawer-files")?.addEventListener("click", () => toggleDrawer("files"));
-$("open-terminal")?.addEventListener("click", () => toggleDrawer("terminal"));
 $("open-files")?.addEventListener("click", () => toggleDrawer("files"));
 $("drawer-close")?.addEventListener("click", closeDrawer);
 for (const b of devDrawer.querySelectorAll(".tab")) b.addEventListener("click", () => openDrawer(b.dataset.tab));
@@ -274,7 +251,6 @@ $("chatupload").addEventListener("change", async (e) => {
   }
   e.target.value = "";
 });
-window.addEventListener("resize", () => fit.fit());
 
 /* ---------------------------- sessions chip ----------------------------- */
 const sessionsEl = $("sessions");
