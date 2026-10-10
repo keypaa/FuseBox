@@ -124,5 +124,5 @@ echo "  To stop: Ctrl+C or: sudo kill ${SDS_PID} ${ENVOY_PID:-}; network/teardow
 echo "=========================================="
 
 # Wait for interrupt
-trap "echo 'Shutting down...'; sudo kill ${SDS_PID} ${ENVOY_PID:-} 2>/dev/null; sudo network/teardown-tap.sh; exit 0" INT TERM
+trap "echo 'Shutting down...'; sudo kill ${SDS_PID} ${ENVOY_PID:-} 2>/dev/null; sudo pkill -x firecracker 2>/dev/null; sudo network/teardown-tap.sh; exit 0" INT TERM
 wait
