@@ -131,6 +131,14 @@ class Handler(SimpleHTTPRequestHandler):
                 "key_present": key_present,
             }))
 
+        # Defensive: drop any client-supplied output-cap keys so we NEVER
+        # forward them upstream; re-encode only when a strip happened so
+        # normal bodies pass through byte-identical.
+        if any(k in body for k in ("max_tokens", "max_output_tokens", "max_completion_tokens")):
+            for k in ("max_tokens", "max_output_tokens", "max_completion_tokens"):
+                body.pop(k, None)
+            raw = json.dumps(body).encode()
+
         # Forward the browser body verbatim — NEVER adding max_tokens.
         out_headers = {"Content-Type": "application/json"}
         if key_present:

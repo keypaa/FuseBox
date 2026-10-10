@@ -54,7 +54,12 @@ xdg-open console/index.html          # default endpoint ws://192.0.2.2:2024
   posts direct from the browser), model name (single locked model
   `inclusionai/ling-3.1-flash`), system prompt. The API key lives only in
   `console/.env` (`OPENROUTER_API_KEY`, read by `server.py`) — never in this
-  browser. The chip next to the composer shows the active model.
+   browser. The chip next to the composer shows the active model.
+- After this branch, an empty base URL means the same-origin relay via
+  `server.py` + `console/.env`. A previously stored absolute baseUrl stays
+  direct until cleared in ⚙. A stale stored browser key is inert in relay
+  mode and safe to leave. Flags like `--log-bodies` need direct
+  `python3 console/server.py` invocation (`serve.sh` forwards extra flags).
 - The assistant's `run_command` tool executes inside the connected PTY;
   output streams into the transcript and the terminal drawer simultaneously.
 - Files created under `/mnt/user-data/outputs` appear in the Files drawer;

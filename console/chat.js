@@ -258,7 +258,7 @@ window.Chat = (() => {
     // or model set after boot (or edited in the settings modal) takes effect.
     try {
       const saved = JSON.parse(localStorage.getItem("fusebox.api") ?? "{}");
-      if (saved.baseUrl) settings.baseUrl = saved.baseUrl;
+      if (saved.baseUrl !== undefined) settings.baseUrl = saved.baseUrl;
       if (saved.key !== undefined) settings.key = saved.key;
       if (saved.model) settings.model = saved.model;
       if (saved.systemPrompt) settings.systemPrompt = saved.systemPrompt;
@@ -293,6 +293,7 @@ window.Chat = (() => {
       headers = { "Content-Type": "application/json" };
     }
 
+    const isRelay = url === "/api/chat";
     const res = await fetch(url, {
       method: "POST",
       headers,
@@ -301,7 +302,7 @@ window.Chat = (() => {
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
       const msg = `${res.status} ${detail.slice(0, 300)}`;
-      if (res.status === 401 && !settings.key) {
+      if (res.status === 401 && (isRelay || !settings.key)) {
         throw new Error("model endpoint unauthorized — check OPENROUTER_API_KEY in console/.env");
       }
       throw new Error(msg);
@@ -752,7 +753,8 @@ window.Chat = (() => {
   $("modelfoot").addEventListener("click", openSettings);
   $("set-cancel").addEventListener("click", () => $("settings").hidden = true);
   $("set-save").addEventListener("click", () => {
-    settings.baseUrl = $("set-base").value.trim() || "mock";
+    const v = $("set-base").value.trim();
+    settings.baseUrl = v;
     settings.model = $("set-model").value.trim() || (settings.baseUrl === "mock" ? "fusebox-mock" : settings.model);
     settings.systemPrompt = $("set-sys").value;
     saveSettings();
