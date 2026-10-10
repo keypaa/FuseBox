@@ -307,22 +307,56 @@ function saveHistory() { localStorage.setItem("fusebox.history", JSON.stringify(
 
 function renderHistory() {
   historyEl.innerHTML = "";
-  const list = (window.Chat?.getHistory?.() ?? loadHistory());
+  const raw = (window.Chat?.getHistory?.() ?? loadHistory());
+  const list = window.__dedupeTitles ? window.__dedupeTitles(raw) : raw;
+  const q = ($("hsearch")?.value ?? "").trim().toLowerCase();
   const cur = window.Chat?.getCurrentId?.() ?? null;
-  if (!list || list.length === 0) {
-    historyEl.innerHTML = '<div class="history-empty">no conversations yet</div>';
+  const filtered = q ? list.filter((h) => (h.title || "").toLowerCase().includes(q)) : list;
+  if (!filtered || filtered.length === 0) {
+    historyEl.innerHTML = (!raw || raw.length === 0)
+      ? '<div class="history-empty">no conversations yet</div>'
+      : '<div class="history-empty">no matches</div>';
     return;
   }
-  for (const h of list) {
+  for (const h of filtered) {
     const el = document.createElement("div");
     el.className = "history-item" + (h.id === cur ? " active" : "");
-    el.innerHTML = `<span class="hi-dot"></span><span class="hi-text"></span>`;
+    el.innerHTML = `<span class="hi-dot"></span><span class="hi-text"></span><span class="hi-time"></span><button class="hi-menu" title="options">⋯</button>`;
     el.querySelector(".hi-text").textContent = h.title || "(new conversation)";
+    el.querySelector(".hi-time").textContent = window.relTime ? window.relTime(h.ts) : "";
     el.addEventListener("click", () => window.Chat?.loadConversation(h.id));
+    el.querySelector(".hi-menu").addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      document.querySelectorAll(".hi-pop").forEach((n) => n.remove());
+      const pop = document.createElement("div");
+      pop.className = "hi-pop";
+      pop.innerHTML = `<button data-act="rename">Rename</button><button data-act="delete">Delete</button>`;
+      pop.style.cssText = "position:absolute;z-index:50;background:var(--bg-3);border:1px solid var(--line-1);border-radius:8px;padding:4px;display:flex;flex-direction:column;gap:2px;";
+      for (const b of pop.querySelectorAll("button")) {
+        b.style.cssText = "background:transparent;border:none;color:var(--fg-0);font-size:12px;text-align:left;padding:5px 10px;border-radius:6px;";
+      }
+      const r = ev.target.getBoundingClientRect();
+      pop.style.top = `${r.bottom + window.scrollY + 4}px`;
+      pop.style.left = `${Math.max(8, r.left - 90)}px`;
+      document.body.appendChild(pop);
+      const close = (e) => { if (!pop.contains(e.target)) { pop.remove(); document.removeEventListener("click", close); } };
+      setTimeout(() => document.addEventListener("click", close), 0);
+      pop.querySelector('[data-act="rename"]').addEventListener("click", () => {
+        const next = prompt("Rename conversation", h.title);
+        if (next !== null) window.Chat?.renameConversation?.(h.id, next);
+        pop.remove();
+      });
+      pop.querySelector('[data-act="delete"]').addEventListener("click", () => {
+        window.Chat?.deleteConversation?.(h.id);
+        pop.remove();
+      });
+    });
     historyEl.appendChild(el);
   }
 }
+window.renderHistory = renderHistory;
 $("newchat").addEventListener("click", () => { if (window.Chat?.newChat) window.Chat.newChat(); });
+$("hsearch")?.addEventListener("input", renderHistory);
 $("settingsbtn").addEventListener("click", () => window.Chat?.openSettings());
 
 /* -------------------------------- boot ---------------------------------- */

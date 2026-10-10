@@ -285,3 +285,10 @@ button.icon { padding: 6px 9px; }
 .tool-card .tc-foot .tc-act { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 .tool-card .tc-copy { background: transparent; border: 1px solid var(--line-1); color: var(--fg-2); font-size: 11px; padding: 2px 8px; }
 .tool-card .tc-copy:hover { color: var(--fg-0); border-color: var(--coral); }
+.hsearch { margin: 8px 8px 2px; width: calc(100% - 16px); background: var(--bg-0); color: var(--fg-0); border: 1px solid var(--line-0); border-radius: 8px; padding: 7px 10px; font-size: 12.5px; }
+.hsearch:focus { outline: none; border-color: var(--coral); }
+.hsearch::placeholder { color: var(--fg-2); }
+.history-item .hi-time { margin-left: auto; font-size: 11px; color: var(--fg-2); flex: none; }
+.history-item .hi-menu { display: none; background: transparent; border: none; color: var(--fg-2); font-size: 13px; padding: 0 2px; }
+.history-item:hover .hi-menu { display: inline; }
+.history-item .hi-menu:hover { color: var(--fg-0); }

@@ -729,6 +729,17 @@ window.Chat = (() => {
     $("modelchip").textContent = settings.baseUrl === "mock" ? "⚙ mock model" : `⚙ ${settings.model}`;
   }
 
+  function dedupeTitles(list) {
+    const seen = new Map();
+    return list.map((h) => {
+      const base = (h.title || "(new conversation)").slice(0, 50);
+      const n = (seen.get(base) ?? 0) + 1;
+      seen.set(base, n);
+      return { ...h, title: n > 1 ? `${base} · ${n}` : base };
+    });
+  }
+  window.__dedupeTitles = dedupeTitles;
+
   /* ------------------------------ history ------------------------------ */
 
   function loadHistory() {
@@ -810,6 +821,9 @@ window.Chat = (() => {
   autosize();
   ConsoleAPI.setMdRenderer(md);
   chatin.focus();
+  // app.js renders the sidebar before this script defines __dedupeTitles,
+  // so re-render once here to apply smart titles on boot.
+  if (window.renderHistory) window.renderHistory();
 
   return {
     previewFile, onUploaded,
@@ -817,5 +831,16 @@ window.Chat = (() => {
     getCurrentId: () => currentId,
     newChat: () => { messages = []; currentId = null; newConversation(); rerenderAll(); },
     loadConversation,
+    deleteConversation: (id) => {
+      history = history.filter((x) => x.id !== id);
+      if (currentId === id) { messages = []; currentId = null; rerenderAll(); }
+      saveHistory();
+      if (window.renderHistory) window.renderHistory();
+    },
+    renameConversation: (id, title) => {
+      const h = history.find((x) => x.id === id);
+      if (h) { h.title = (title || h.title).slice(0, 50); saveHistory(); }
+      if (window.renderHistory) window.renderHistory();
+    },
   };
 })();
